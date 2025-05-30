@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# Navigate to project root
+cd "$(dirname "$0")/.."
+
+# Create the necessary table in PostgreSQL
+echo "Setting up PostgreSQL table..."
+docker exec -i postgres psql -U postgres -d tabularasa < q1_realtime_stream_processing/ddl/postgres_aggregated_campaign_stats.sql
+
+# Build the project with Maven
+echo "Building the project..."
+mvn clean package -DskipTests
+
+# Run the Spring Boot application with external config
+echo "Running Q1 application..."
+java --add-opens=java.base/java.lang=ALL-UNNAMED \
+     --add-opens=java.base/java.util=ALL-UNNAMED \
+     --add-opens=java.base/java.lang.reflect=ALL-UNNAMED \
+     --add-opens=java.base/sun.nio.ch=ALL-UNNAMED \
+     -Djava.security.manager=allow \
+     -Dhadoop.home.dir=/ \
+     -DHADOOP_USER_NAME=`whoami` \
+     -jar q1_realtime_stream_processing/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT-spring-boot.jar \
+     --spring.config.location=file:q1_realtime_stream_processing/src/main/resources/application.properties 
