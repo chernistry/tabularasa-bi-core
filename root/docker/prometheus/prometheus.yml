@@ -1,0 +1,56 @@
+# ==== PROMETHEUS CONFIGURATION ====
+# This file configures Prometheus server, alerting, and scrape jobs.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+# Load rules once and periodically evaluate them
+rule_files:
+  - "alert.rules.yml"
+
+# ==== SCRAPE CONFIGS ====
+# Scrape configuration for Prometheus server itself
+# A scrape configuration containing exactly one endpoint to scrape
+scrape_configs:
+  # The job name is added as a label `job=<job_name>` to any timeseries scraped from this config.
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+# Scrape configuration for Spring Boot app
+  - job_name: "spring_boot_app"
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['host.docker.internal:8081']
+        labels:
+          application: 'tabularasa-bi-core'
+
+# Scrape configuration for Kafka (if JMX is enabled)
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['kafka:9092']
+        labels:
+          service: 'kafka-broker'
+
+# Scrape configuration for Spark Master
+  - job_name: 'spark_master'
+    static_configs:
+      - targets: ['spark-master:8080']
+        labels:
+          service: 'spark-master'
+
+# Scrape configuration for Spark Worker
+  - job_name: 'spark_worker'
+    static_configs:
+      - targets: ['spark-worker:8080']
+        labels:
+          service: 'spark-worker' 

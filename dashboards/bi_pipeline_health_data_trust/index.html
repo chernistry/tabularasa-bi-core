@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BI Pipeline Health & Data Trust</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<<<<<<< HEAD
+    <link rel="stylesheet" href="../shared/main.css">
+    <script src="../shared/plot-theme.js"></script>
+</head>
+<body>
+    <header class="main-header">
+        <a href="../../index.html" class="logo">TabulaRasa<span>.ai</span></a>
+        <nav>
+            <a href="../ceo_executive_pulse/index.html">Executive Pulse</a>
+            <a href="../advertiser_campaign_performance/index.html">Advertiser Performance</a>
+            <a href="../publisher_health_yield_optimization/index.html">Publisher Yield</a>
+            <a href="./index.html" class="active">BI Pipeline Health</a>
+        </nav>
+    </header>
+
+    <div class="dashboard-container">
+        <h1 class="dashboard-title">BI Pipeline Health & Data Trust</h1>
+        <p class="dashboard-subtitle">
+            <strong>Narrative for Michal:</strong> Our business metrics are accurate because our data pipeline runs like clockwork. This dashboard correlates business KPI anomalies with technical events, proving data trustworthiness.
+        </p>
+        
+        <div class="card">
+             <div class="card-header">
+                <h2 class="card-title">Business KPI: Advertiser ROI Index Trend</h2>
+                <span class="info-icon" onclick="showModal('roi-modal')">ℹ️</span>
+            </div>
+            <p style="text-align:center; font-style: italic;">Click a data point with an anomaly (e.g., April) to see corresponding pipeline events highlighted below.</p>
+            <div id="business-kpi-chart" class="chart-container"></div>
+        </div>
+
+        <div class="dashboard-grid grid-col-4">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Data Ingestion Lag</h3>
+                    <span class="info-icon" onclick="showModal('lag-modal')">ℹ️</span>
+                </div>
+                <div id="lag-chart" class="chart-container"></div>
+            </div>
+            <div class="card">
+                 <div class="card-header">
+                    <h3 class="card-title">ETL Job Success</h3>
+                    <span class="info-icon" onclick="showModal('etl-modal')">ℹ️</span>
+                </div>
+                <div id="etl-chart" class="chart-container"></div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Data Freshness</h3>
+                    <span class="info-icon" onclick="showModal('freshness-modal')">ℹ️</span>
+                </div>
+                <div id="freshness-chart" class="chart-container"></div>
+            </div>
+             <div class="card">
+                 <div class="card-header">
+                    <h3 class="card-title">Data Quality Score</h3>
+                    <span class="info-icon" onclick="showModal('quality-modal')">ℹ️</span>
+                </div>
+=======
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background-color: #f0f2f5; color: #333; margin: 0; padding: 20px; }
+        h1, h2 { text-align: center; color: #1a2538; }
+        .container { max-width: 1200px; margin: auto; }
+        .card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .card h3 { margin-top: 0; font-size: 1.2em; border-bottom: 2px solid #eef; padding-bottom: 10px; }
+        .technical-dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; }
+        .chart-container { height: 300px; }
+        .highlight { border: 2px solid red; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>BI Pipeline Health & Data Trust</h1>
+        <p style="text-align:center;">
+            <strong>Narrative:</strong> Our business metrics are accurate, and you can trust them. Our pipeline runs like clockwork.
+        </p>
+        
+        <div class="card">
+            <h3>Business KPI: Advertiser ROI Index Trend</h3>
+            <p style="text-align:center; font-style: italic;">Click on a data point with an anomaly (like in April) to see corresponding pipeline events.</p>
+            <div id="business-kpi-chart" class="chart-container"></div>
+        </div>
+
+        <h2>Technical Pipeline Health Metrics</h2>
+        <div class="technical-dashboard">
+            <div class="card">
+                <h3>Data Ingestion Lag (sec)</h3>
+                <div id="lag-chart" class="chart-container"></div>
+            </div>
+            <div class="card">
+                <h3>ETL Job Success Rate (%)</h3>
+                <div id="etl-chart" class="chart-container"></div>
+            </div>
+            <div class="card">
+                <h3>Data Freshness (Hours)</h3>
+                <div id="freshness-chart" class="chart-container"></div>
+            </div>
+             <div class="card">
+                <h3>Data Quality Score (%)</h3>
+>>>>>>> 25294c0 (Add new dashboards for BI Executive Command Center, Advertiser Campaign Performance, BI Pipeline Health & Data Trust, CEO & Executive Pulse, and Publisher Health & Yield Optimization. Include necessary HTML structure, styles, and Plotly visualizations for data representation. Also, add .DS_Store files for directory management.)
+                <div id="quality-chart" class="chart-container"></div>
+            </div>
+        </div>
+    </div>
+
+<<<<<<< HEAD
+    <!-- Modals for Info Icons -->
+    <div id="roi-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('roi-modal')">&times;</span><h3>Advertiser ROI Index</h3><p>A composite score representing the overall return on investment for advertisers. It's a key indicator of platform effectiveness.</p></div></div>
+    <div id="lag-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('lag-modal')">&times;</span><h3>Data Ingestion Lag (sec)</h3><p>The delay between an event occurring and it being recorded in our initial data store (e.g., Kafka). High lag can delay insights.</p></div></div>
+    <div id="etl-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('etl-modal')">&times;</span><h3>ETL Job Success Rate (%)</h3><p>The percentage of scheduled ETL (Extract, Transform, Load) jobs in Airflow that complete successfully. A dip indicates processing failures.</p></div></div>
+    <div id="freshness-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('freshness-modal')">&times;</span><h3>Data Freshness (Hours)</h3><p>The age of the data in the main Data Warehouse (e.g., Vertica/BigQuery) when a report is run. Lower is better.</p></div></div>
+    <div id="quality-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('quality-modal')">&times;</span><h3>Data Quality Score (%)</h3><p>The percentage of records that pass validation checks (e.g., schema, rules) during the ETL process. Low scores indicate untrustworthy data.</p></div></div>
+
+    <script>
+        const chartIds = ['business-kpi-chart', 'lag-chart', 'etl-chart', 'freshness-chart', 'quality-chart'];
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+        const roiData = [1.2, 1.25, 1.22, 0.95, 1.18, 1.21];
+        
+        // --- Chart Layouts ---
+        const businessLayout = { ...plotTheme, title: { ...plotTheme.title, text: 'Advertiser ROI Index' }};
+        const lagLayout = { ...plotTheme, title: { ...plotTheme.title, text: 'Kafka Ingestion Lag (sec)' }};
+        const etlLayout = { ...plotTheme, title: { ...plotTheme.title, text: 'Airflow ETL Success (%)' }};
+        const freshnessLayout = { ...plotTheme, title: { ...plotTheme.title, text: 'DWH Data Freshness (Hours)' }};
+        const qualityLayout = { ...plotTheme, title: { ...plotTheme.title, text: 'Validation Score (%)' }};
+        
+=======
+    <script>
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+        const roiData = [1.2, 1.25, 1.22, 0.95, 1.18, 1.21];
+        
+>>>>>>> 25294c0 (Add new dashboards for BI Executive Command Center, Advertiser Campaign Performance, BI Pipeline Health & Data Trust, CEO & Executive Pulse, and Publisher Health & Yield Optimization. Include necessary HTML structure, styles, and Plotly visualizations for data representation. Also, add .DS_Store files for directory management.)
+        // --- Business KPI Chart ---
+        const businessChart = document.getElementById('business-kpi-chart');
+        Plotly.newPlot(businessChart, [{
+            x: months,
+            y: roiData,
+            mode: 'lines+markers',
+            type: 'scatter',
+<<<<<<< HEAD
+            marker: { size: 10, color: plotTheme.colorway[0] },
+            line: { color: plotTheme.colorway[0] }
+        }], businessLayout, { responsive: true });
+=======
+            marker: { size: 10 }
+        }], { title: 'Advertiser ROI Index' });
+>>>>>>> 25294c0 (Add new dashboards for BI Executive Command Center, Advertiser Campaign Performance, BI Pipeline Health & Data Trust, CEO & Executive Pulse, and Publisher Health & Yield Optimization. Include necessary HTML structure, styles, and Plotly visualizations for data representation. Also, add .DS_Store files for directory management.)
+
+        // --- Technical Health Data ---
+        const ingestionLag = [15, 18, 20, 150, 25, 22];
+        const etlSuccess = [99.8, 99.9, 100, 85.2, 99.5, 99.7];
+        const dataFreshness = [1, 1.1, 0.9, 5.5, 1.2, 1];
+        const qualityScore = [99, 98, 99, 92, 98, 99];
+        
+        // --- Technical Charts ---
+<<<<<<< HEAD
+        Plotly.newPlot('lag-chart', [{ x: months, y: ingestionLag, type: 'bar', marker: { color: plotTheme.colorway[0] } }], lagLayout, { responsive: true });
+        Plotly.newPlot('etl-chart', [{ x: months, y: etlSuccess, type: 'line', marker: { color: plotTheme.colorway[1] }, line: {color: plotTheme.colorway[1]} }], etlLayout, { responsive: true });
+        Plotly.newPlot('freshness-chart', [{ x: months, y: dataFreshness, type: 'scatter', mode: 'lines+markers', marker: { color: plotTheme.colorway[2] }, line: {color: plotTheme.colorway[2]} }], freshnessLayout, { responsive: true });
+        Plotly.newPlot('quality-chart', [{ x: months, y: qualityScore, type: 'line', marker: { color: plotTheme.colorway[4] }, line: {color: plotTheme.colorway[4]} }], qualityLayout, { responsive: true });
+
+        // --- "Wow" Feature: Interactive Highlighting & Annotation ---
+        businessChart.on('plotly_click', function(data) {
+            clearAllHighlightsAndLines();
+            const pointIndex = data.points[0].pointIndex;
+            
+            // Highlight the corresponding point on each technical chart
+            highlightPoint('business-kpi-chart', pointIndex);
+=======
+        Plotly.newPlot('lag-chart', [{ x: months, y: ingestionLag, type: 'bar', name: 'Lag' }], { title: 'Kafka Ingestion Lag' });
+        Plotly.newPlot('etl-chart', [{ x: months, y: etlSuccess, type: 'line', name: 'Success Rate' }], { title: 'Airflow ETL Success' });
+        Plotly.newPlot('freshness-chart', [{ x: months, y: dataFreshness, type: 'scatter', mode: 'lines+markers', name: 'Freshness' }], { title: 'DWH Data Freshness' });
+        Plotly.newPlot('quality-chart', [{ x: months, y: qualityScore, type: 'line', name: 'Quality' }], { title: 'Validation Score' });
+
+        // --- "Wow" Feature: Interactive Highlighting ---
+        businessChart.on('plotly_click', function(data) {
+            const pointIndex = data.points[0].pointIndex;
+            
+            // Highlight the corresponding point on each technical chart
+>>>>>>> 25294c0 (Add new dashboards for BI Executive Command Center, Advertiser Campaign Performance, BI Pipeline Health & Data Trust, CEO & Executive Pulse, and Publisher Health & Yield Optimization. Include necessary HTML structure, styles, and Plotly visualizations for data representation. Also, add .DS_Store files for directory management.)
+            highlightPoint('lag-chart', pointIndex);
+            highlightPoint('etl-chart', pointIndex);
+            highlightPoint('freshness-chart', pointIndex);
+            highlightPoint('quality-chart', pointIndex);
+<<<<<<< HEAD
+            
+            // Draw vertical line across all charts
+            chartIds.forEach(id => drawVerticalLine(id, pointIndex));
+            
+            // Add annotation if it's the anomaly point
+            if (pointIndex === 3) { // April Anomaly
+                const annotation = {
+                    x: months[pointIndex],
+                    y: roiData[pointIndex],
+                    xref: 'x',
+                    yref: 'y',
+                    text: '<b>Root Cause Analysis:</b><br>ETL Failure (85.2% success)<br>Stale Data (5.5 hrs old)<br>Quality Score Drop (92%)',
+                    showarrow: true,
+                    arrowhead: 2,
+                    ax: 0,
+                    ay: -80,
+                    bgcolor: 'rgba(255, 248, 225, 0.9)',
+                    bordercolor: 'var(--warning-color, #ffc107)',
+                    borderwidth: 1,
+                    font: { size: 12 }
+                };
+                Plotly.relayout(businessChart, { annotations: [annotation] });
+            }
+        });
+        
+        function clearAllHighlightsAndLines() {
+            clearAllVerticalLines();
+            Plotly.relayout(businessChart, { annotations: [] }); // Reset annotations
+            
+            // Reset highlights on all charts
+            highlightPoint('business-kpi-chart', -1); // -1 to reset all
+            highlightPoint('lag-chart', -1);
+            highlightPoint('etl-chart', -1);
+            highlightPoint('freshness-chart', -1);
+            highlightPoint('quality-chart', -1);
+        }
+
+        function highlightPoint(chartId, index) {
+            const chart = document.getElementById(chartId);
+            if (!chart || !chart.data) return;
+
+            const baseColor = chart.data[0].line ? chart.data[0].line.color : plotTheme.colorway[0];
+            const highlightColor = 'var(--danger-color, #d62728)';
+
+            const colors = chart.data[0].y.map((_, i) => i === index ? highlightColor : baseColor);
+            const sizes = chart.data[0].y.map((_, i) => i === index ? 14 : 10);
+=======
+        });
+
+        function highlightPoint(chartId, index) {
+            const chart = document.getElementById(chartId);
+            // Create an array of colors, with the selected point being red
+            const colors = chart.data[0].y.map((_, i) => i === index ? 'red' : '#1f77b4');
+            const sizes = chart.data[0].y.map((_, i) => i === index ? 16 : 8);
+>>>>>>> 25294c0 (Add new dashboards for BI Executive Command Center, Advertiser Campaign Performance, BI Pipeline Health & Data Trust, CEO & Executive Pulse, and Publisher Health & Yield Optimization. Include necessary HTML structure, styles, and Plotly visualizations for data representation. Also, add .DS_Store files for directory management.)
+
+            Plotly.restyle(chart, {
+                'marker.color': [colors],
+                'marker.size': [sizes]
+            });
+        }
+    </script>
+</body>
+</html> 

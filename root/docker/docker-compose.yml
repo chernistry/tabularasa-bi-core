@@ -1,0 +1,303 @@
+version: '3.8'
+
+x-airflow-common:
+  &airflow-common
+  image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.8.1}
+  env_file:
+    - ./airflow_setup/airflow.env
+  volumes:
+    - ./airflow_setup/dags:/opt/airflow/dags
+    - ./airflow_setup/logs:/opt/airflow/logs
+    - ./airflow_setup/plugins:/opt/airflow/plugins
+    - ./spark_jars:/opt/airflow/spark_jars
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on:
+    tabularasa_postgres_db:
+      condition: service_healthy
+  networks:
+    - bi_network
+
+services:
+  # ================== DATABASE SERVICES ==================
+  # --► PostgreSQL for Airflow metadata and app data
+  # ⚠️ Ensure credentials are managed securely in production.
+  tabularasa_postgres_db:
+    image: postgres:14.11-alpine
+    container_name: tabularasa_postgres_db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-airflow}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-airflow}
+      - POSTGRES_DB=${POSTGRES_DB:-airflow}
+    volumes:
+      - tabularasa_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-airflow} -d ${POSTGRES_DB:-airflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - bi_network
+
+  zookeeper:
+    image: bitnami/zookeeper:3.9
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+    volumes:
+      - zookeeper_data:/bitnami/zookeeper
+    restart: always
+    networks:
+      - bi_network
+
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      - KAFKA_BROKER_ID=1
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - ALLOW_PLAINTEXT_Listener=yes
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://0.0.0.0:9092
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+    volumes:
+      - kafka_data:/bitnami/kafka
+    depends_on:
+      - zookeeper
+    restart: always
+    networks:
+      - bi_network
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    container_name: kafka-ui
+    ports:
+      - "8088:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local-kafka
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    depends_on:
+      - kafka
+    networks:
+      - bi_network
+
+  # ================== SPARK CLUSTER ==================
+  # --► Spark master and worker for distributed processing
+  spark-master:
+    image: bitnami/spark:3.5
+    container_name: spark-master
+    ports:
+      - "8081:8080"
+      - "7077:7077"
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    volumes:
+      - ./spark_apps:/opt/spark_apps
+      - ./spark_data:/opt/spark_data
+    networks:
+      - bi_network
+
+  spark-worker:
+    image: bitnami/spark:3.5
+    container_name: spark-worker
+    depends_on:
+      - spark-master
+    ports:
+      - "8082:8080"
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=1G
+      - SPARK_WORKER_CORES=1
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    volumes:
+      - ./spark_apps:/opt/spark_apps
+      - ./spark_data:/opt/spark_data
+    networks:
+      - bi_network
+
+  # ================== AIRFLOW SERVICES ==================
+  # --► Airflow for orchestration
+  airflow-init:
+    <<: *airflow-common
+    container_name: tabularasa_airflow_init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        if [[ -z "$${AIRFLOW_UID}" ]]; then
+          echo;
+          echo -e "\033[1;33mWARNING!!!: AIRFLOW_UID not set!\e[0m";
+          echo "If you are on Linux, you SHOULD follow the instructions below to set ";
+          echo "AIRFLOW_UID environment variable, otherwise files will be owned by root.";
+          echo "For other operating systems you can get rid of the warning with manually created .env file:";
+          echo "    See: https://airflow.apache.org/docs/apache-airflow/stable/howto/docker-compose/index.html#setting-the-right-airflow-user";
+          echo;
+        fi;
+        one_meg=1048576;
+        mem_available=$(($(getconf _PHYS_PAGES) * $(getconf PAGE_SIZE) / one_meg));
+        cpus_available=$(grep -cE 'cpu[0-9]+' /proc/stat);
+        disk_available=$(df / | tail -1 | awk '{print $$4}');
+        warning_resources="false";
+        if (( mem_available < 2000 )) ; then
+          echo;
+          echo -e "\033[1;33mWARNING!!!: Not enough memory available for Docker (Recommend >2GB).\e[0m";
+          echo "You have $(numfmt --to iec $((mem_available * one_meg)))";
+          warning_resources="true";
+        fi;
+        if (( cpus_available < 1 )); then
+          echo;
+          echo -e "\033[1;33mWARNING!!!: Not enough CPUS available for Docker (Recommend >1).\e[0m";
+          echo "You have $${cpus_available}";
+          warning_resources="true";
+        fi;
+        if [[ $${warning_resources} == "true" ]]; then
+          echo;
+          echo -e "\033[1;33mWARNING!!!: You might have not enough resources for a smooth Airflow experience!\e[0m";
+          echo;
+        fi;
+        airflow db init && \
+        airflow users create \
+          --username ${AIRFLOW_WWW_USER_USERNAME:-admin} \
+          --firstname ${AIRFLOW_WWW_USER_FIRSTNAME:-Admin} \
+          --lastname ${AIRFLOW_WWW_USER_LASTNAME:-User} \
+          --role ${AIRFLOW_WWW_USER_ROLE:-Admin} \
+          --email ${AIRFLOW_WWW_USER_EMAIL:-admin@example.com} \
+          --password ${AIRFLOW_WWW_USER_PASSWORD:-admin} || airflow users set-password --username ${AIRFLOW_WWW_USER_USERNAME:-admin} --password ${AIRFLOW_WWW_USER_PASSWORD:-admin}
+  
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: tabularasa_airflow_webserver
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: tabularasa_airflow_scheduler
+    command: scheduler
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --limit 1 | grep -c 'SUCCESS' || exit 1"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  # ================== MONITORING STACK ==================
+  # --► Prometheus, Grafana, Jaeger for observability
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    restart: always
+    networks:
+      - bi_network
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/:/etc/grafana/provisioning/
+      - ./grafana/provisioning/dashboards/jvm_dashboard.json:/etc/grafana/dashboards/jvm_dashboard.json
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/dashboards/jvm_dashboard.json
+    restart: always
+    depends_on:
+      - prometheus
+    networks:
+      - bi_network
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: jaeger
+    ports:
+      - "16686:16686" # Jaeger UI
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    volumes:
+      - jaeger_data:/badger
+    restart: always
+    networks:
+      - bi_network
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+    restart: always
+    networks:
+      - bi_network
+
+volumes:
+  tabularasa_pg_data:
+    driver: local
+  zookeeper_data:
+    driver: local
+  kafka_data:
+    driver: local
+  spark_jars:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  jaeger_data:
+    driver: local
+  alertmanager_data:
+    driver: local
+
+networks:
+  bi_network:
+    driver: bridge 

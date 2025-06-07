@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advertiser Campaign Performance</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<<<<<<< HEAD
+    <script src="https://cdn.jsdelivr.net/npm/wordcloud@1.2.2/src/wordcloud2.js"></script>
+    <link rel="stylesheet" href="../shared/main.css">
+    <script src="../shared/plot-theme.js"></script>
+</head>
+<body>
+    <header class="main-header">
+        <a href="../../index.html" class="logo">TabulaRasa<span>.ai</span></a>
+        <nav>
+            <a href="../ceo_executive_pulse/index.html">Executive Pulse</a>
+            <a href="./index.html" class="active">Advertiser Performance</a>
+            <a href="../publisher_health_yield_optimization/index.html">Publisher Yield</a>
+            <a href="../bi_pipeline_health_data_trust/index.html">BI Pipeline Health</a>
+        </nav>
+    </header>
+
+    <div class="dashboard-container">
+        <h1 class="dashboard-title">Advertiser Campaign Performance</h1>
+        <p class="dashboard-subtitle">
+            <strong>Narrative for Campaign Managers:</strong> Identifying which campaigns deliver maximum profit and where growth opportunities lie for our clients.
+        </p>
+
+        <div class="kpi-grid">
+            <div class="card kpi-card">
+                <div class="kpi-label">Average Cost Per Acquisition (CPA)</div>
+                <div class="kpi-value">$12.50</div>
+                <div class="kpi-change negative">-5.2% vs. Target (Higher)</div>
+            </div>
+            <div class="card kpi-card">
+                <div class="kpi-label">Average Return On Ad Spend (ROAS)</div>
+                <div class="kpi-value">4.2<span class="unit">x</span></div>
+                <div class="kpi-change positive">+10% vs. Target</div>
+            </div>
+        </div>
+
+        <div class="dashboard-grid main-side-layout" style="margin-top: 24px;">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Conversion Rate Funnel</h2>
+                    <span class="info-icon" onclick="showModal('funnel-modal')">ℹ️</span>
+                </div>
+                <div id="funnel-chart" class="chart-container" style="min-height: 450px;"></div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">"Wow" Feature: Top Converting Keywords</h2>
+                    <span class="info-icon" onclick="showModal('wordcloud-modal')">ℹ️</span>
+                </div>
+                <div class="chart-container" style="display: flex; align-items: center; justify-content: center;">
+                    <canvas id="wordcloud-canvas" width="400" height="400"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Audience Segment Performance (ROAS)</h2>
+                <span class="info-icon" onclick="showModal('segment-modal')">ℹ️</span>
+            </div>
+            <div id="segment-performance-chart" class="chart-container"></div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="funnel-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('funnel-modal')">&times;</span><h3>Conversion Rate Funnel</h3><p>This funnel shows the journey from initial ad impression to final conversion, highlighting drop-off rates at each stage.</p></div></div>
+    <div id="wordcloud-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('wordcloud-modal')">&times;</span><h3>Top Converting Keywords</h3><p>This word cloud visualizes the keywords from search campaigns that are driving the most conversions. The larger the word, the more conversions it generated.</p></div></div>
+    <div id="segment-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('segment-modal')">&times;</span><h3>Audience Segment Performance</h3><p>This chart compares the Return On Ad Spend (ROAS) across different audience segments, helping to identify the most profitable groups to target.</p></div></div>
+
+    <script>
+        // --- Funnel Chart ---
+        const funnelLayout = {
+            ...plotTheme,
+            title: { ...plotTheme.title, text: 'From Impression to Purchase' }
+        };
+        Plotly.newPlot('funnel-chart', [{
+            type: 'funnel',
+            y: ['Impressions', 'Clicks', 'Add to Cart', 'Purchase'],
+            x: [100000, 15000, 3000, 750],
+            textinfo: "value+percent initial",
+            marker: { color: plotTheme.colorway }
+        }], funnelLayout, { responsive: true });
+
+        // --- Audience Segment Chart ---
+        const segmentLayout = {
+            ...plotTheme,
+            title: { ...plotTheme.title, text: 'ROAS by Audience Segment' },
+            xaxis: { title: 'Audience Segment' },
+            yaxis: { title: 'ROAS (x)' }
+        };
+        Plotly.newPlot('segment-performance-chart', [{
+            x: ['Tech Enthusiasts', 'Gamers', 'Parents', 'Finance Professionals', 'Students'],
+            y: [5.5, 6.2, 3.1, 4.8, 2.5],
+            type: 'bar',
+            marker: { color: plotTheme.colorway[1] }
+        }], segmentLayout, { responsive: true });
+
+        // --- Word Cloud ---
+        const list = [
+            ['real-time analytics', 55], ['content discovery', 48], ['native advertising', 45],
+            ['ad campaign optimization', 35], ['user engagement', 32], ['brand safety', 28],
+            ['supply chain visibility', 25], ['b2b marketing', 22], ['programmatic ads', 20],
+            ['lead generation', 18], ['saas solutions', 15], ['ecommerce growth', 12]
+        ];
+        WordCloud(document.getElementById('wordcloud-canvas'), { list: list, weightFactor: 8, fontFamily: 'Segoe UI' });
+=======
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+            color: #1a2538;
+        }
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+        }
+        .card {
+            background: #ffffff;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+            transition: transform 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        .card h2 {
+            margin-top: 0;
+            font-size: 1.2em;
+            border-bottom: 2px solid #eef;
+            padding-bottom: 10px;
+        }
+        .chart-container {
+            height: 350px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Advertiser Campaign Performance</h1>
+    <p style="text-align:center; max-width: 800px; margin: 0 auto 20px;">
+        <strong>Narrative:</strong> Which campaigns are delivering maximum profit and where are the growth opportunities for our clients?
+    </p>
+
+    <div class="dashboard">
+        <div class="card">
+            <h2>Cost Per Acquisition (CPA) & ROAS</h2>
+            <div id="cpa-roas-chart" class="chart-container"></div>
+        </div>
+        <div class="card">
+            <h2>Conversion Rate Funnel</h2>
+            <div id="funnel-chart" class="chart-container"></div>
+        </div>
+        <div class="card">
+            <h2>Audience Segment Performance</h2>
+            <div id="segment-chart" class="chart-container"></div>
+        </div>
+        <div class="card">
+            <h2>"Wow" Feature: Top Converting Keywords</h2>
+            <div id="keywords-chart" class="chart-container"></div>
+        </div>
+    </div>
+
+    <script>
+        // --- CPA & ROAS Chart ---
+        const campaigns = ['Campaign A', 'Campaign B', 'Campaign C', 'Campaign D'];
+        const cpaData = [25, 35, 22, 40];
+        const roasData = [4.5, 3.2, 5.1, 2.8];
+
+        Plotly.newPlot('cpa-roas-chart', [{
+            x: campaigns,
+            y: cpaData,
+            name: 'CPA ($)',
+            type: 'bar',
+            marker: { color: '#3b82f6' }
+        }, {
+            x: campaigns,
+            y: roasData,
+            name: 'ROAS',
+            type: 'scatter',
+            mode: 'lines+markers',
+            yaxis: 'y2',
+            marker: { color: '#10b981' }
+        }], {
+            title: 'CPA & ROAS by Campaign',
+            yaxis: { title: 'CPA ($)' },
+            yaxis2: {
+                title: 'ROAS',
+                overlaying: 'y',
+                side: 'right'
+            },
+            legend: { x: 0.1, y: 1.15, orientation: 'h' }
+        });
+
+        // --- Conversion Funnel ---
+        Plotly.newPlot('funnel-chart', [{
+            type: 'funnel',
+            y: ['Impressions', 'Clicks', 'Add to Cart', 'Purchase'],
+            x: [100000, 15000, 3000, 1200],
+            textinfo: "value+percent initial",
+            marker: {
+                color: ["#6366f1", "#818cf8", "#a5b4fc", "#c7d2fe"],
+            }
+        }], {
+            title: 'Overall Conversion Funnel'
+        });
+
+        // --- Audience Segment Performance ---
+        const segments = ['Tech Enthusiasts', 'Gamers', 'Parents', 'Students'];
+        Plotly.newPlot('segment-chart', [{
+            r: [85, 75, 60, 90, 85],
+            theta: [...segments, segments[0]], // Close the loop
+            fill: 'toself',
+            type: 'scatterpolar',
+            name: 'ROAS Index'
+        },{
+            r: [70, 90, 80, 75, 70],
+            theta: [...segments, segments[0]],
+            fill: 'toself',
+            type: 'scatterpolar',
+            name: 'Conversion Rate Index'
+        }], {
+            title: 'Performance by Audience Segment',
+            polar: {
+                radialaxis: {
+                    visible: true,
+                    range: [0, 100]
+                }
+            },
+            legend: { x: 0.1, y: -0.1, orientation: 'h' }
+        });
+
+        // --- Top Converting Keywords Chart ---
+        // A bar chart is used here as a substitute for a dynamic word cloud for simplicity.
+        const keywords = ['"buy cheap smartphone"', '"best gaming laptop 2025"', '"online learning platform"', '"eco-friendly products"'];
+        const keywordConversions = [450, 320, 250, 180];
+        Plotly.newPlot('keywords-chart', [{
+            y: keywords,
+            x: keywordConversions,
+            type: 'bar',
+            orientation: 'h',
+            marker: {
+                color: 'rgba(239, 68, 68, 0.8)'
+            }
+        }], {
+            title: 'Top Converting Keywords',
+            xaxis: { title: 'Conversions' },
+            yaxis: { automargin: true }
+        });
+>>>>>>> 25294c0 (Add new dashboards for BI Executive Command Center, Advertiser Campaign Performance, BI Pipeline Health & Data Trust, CEO & Executive Pulse, and Publisher Health & Yield Optimization. Include necessary HTML structure, styles, and Plotly visualizations for data representation. Also, add .DS_Store files for directory management.)
+    </script>
+</body>
+</html> 

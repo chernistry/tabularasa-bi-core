@@ -1,0 +1,15 @@
+# ==== ALERTMANAGER CONFIGURATION ====
+# This file configures Alertmanager for Prometheus alerts.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: 'null'
+  group_wait: 10s
+  group_interval: 30s
+  repeat_interval: 1h
+
+receivers:
+  - name: 'null'
+    # No real notification, just log 

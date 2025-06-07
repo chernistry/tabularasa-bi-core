@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Publisher Health & Yield Optimization</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<<<<<<< HEAD
+    <link rel="stylesheet" href="../shared/main.css">
+    <script src="../shared/plot-theme.js"></script>
+</head>
+<body>
+    <header class="main-header">
+        <a href="../../index.html" class="logo">TabulaRasa<span>.ai</span></a>
+        <nav>
+            <a href="../ceo_executive_pulse/index.html">Executive Pulse</a>
+            <a href="../advertiser_campaign_performance/index.html">Advertiser Performance</a>
+            <a href="./index.html" class="active">Publisher Yield</a>
+            <a href="../bi_pipeline_health_data_trust/index.html">BI Pipeline Health</a>
+        </nav>
+    </header>
+
+    <div class="dashboard-container">
+        <h1 class="dashboard-title">Publisher Health & Yield Optimization</h1>
+        <p class="dashboard-subtitle">
+            <strong>Narrative for Publisher Managers:</strong> Tools and insights to help our key publisher partners earn more while maintaining audience loyalty.
+        </p>
+        
+        <div class="dashboard-grid grid-col-4">
+            <div class="card"><div id="rpm-gauge" class="chart-container"></div></div>
+            <div class="card"><div id="fill-rate-gauge" class="chart-container"></div></div>
+            <div class="card"><div id="ctr-gauge" class="chart-container"></div></div>
+            <div class="card"><div id="viewability-gauge" class="chart-container"></div></div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">"Wow" Feature: Yield Optimization Simulator</h2>
+                <span class="info-icon" onclick="showModal('simulator-modal')">ℹ️</span>
+            </div>
+            <div class="simulator-grid">
+                <div class="predicted-rpm">
+                    <div id="predicted-rpm-value" class="rpm-value">$7.52</div>
+                    <div class="rpm-label">Predicted Page RPM</div>
+                </div>
+                <div class="simulator-controls">
+                    <div class="slider-container">
+                        <label for="ad-density">Ad Density (Slots per Page): <span id="ad-density-val">3</span></label>
+                        <input type="range" id="ad-density" min="1" max="8" value="3" step="1">
+                    </div>
+                    <div class="slider-container">
+                        <label for="viewability-boost">Viewability Boost (%): <span id="viewability-boost-val">0</span>%</label>
+                        <input type="range" id="viewability-boost" min="0" max="25" value="0" step="1">
+                    </div>
+                    <div class="slider-container">
+                        <label for="ad-mix">High-Value Ad Mix (%): <span id="ad-mix-val">20</span>%</label>
+                        <input type="range" id="ad-mix" min="0" max="100" value="20" step="5">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+             <div class="card-header">
+                <h2 class="card-title">Historical Performance Trend (Page RPM)</h2>
+                <span class="info-icon" onclick="showModal('history-modal')">ℹ️</span>
+            </div>
+            <div id="rpm-history-chart" class="chart-container"></div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="simulator-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('simulator-modal')">&times;</span><h3>Yield Optimization Simulator</h3><p>This tool allows you to model how changes to ad strategy might impact a publisher's Page RPM. Adjust the sliders to see a predicted outcome. This is a simplified model for demonstration purposes.</p></div></div>
+    <div id="history-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('history-modal')">&times;</span><h3>Historical Performance</h3><p>This chart tracks the publisher's daily Page RPM over the last month, providing context for their current performance.</p></div></div>
+
+    <script>
+        // --- Gauge Charts ---
+        const gaugeLayout = { ...plotTheme, margin: { t: 40, b: 20, l: 30, r: 30 } };
+        
+        Plotly.newPlot('rpm-gauge', [{ type: 'indicator', mode: 'gauge+number', value: 7.52, title: { text: 'Page RPM ($)' }, gauge: { axis: { range: [0, 15] }, bar: { color: plotTheme.colorway[0] } } }], gaugeLayout, { responsive: true });
+        Plotly.newPlot('fill-rate-gauge', [{ type: 'indicator', mode: 'gauge+number', value: 89.5, title: { text: 'Ad Fill Rate (%)' }, gauge: { axis: { range: [0, 100] }, bar: { color: plotTheme.colorway[1] } } }], gaugeLayout, { responsive: true });
+        Plotly.newPlot('ctr-gauge', [{ type: 'indicator', mode: 'gauge+number', value: 0.45, title: { text: 'Ad CTR (%)' }, gauge: { axis: { range: [0, 1] }, bar: { color: plotTheme.colorway[2] } } }], gaugeLayout, { responsive: true });
+        Plotly.newPlot('viewability-gauge', [{ type: 'indicator', mode: 'gauge+number', value: 72.1, title: { text: 'Viewability Score (%)' }, gauge: { axis: { range: [0, 100] }, bar: { color: plotTheme.colorway[4] } } }], gaugeLayout, { responsive: true });
+
+        // --- Simulator Logic ---
+        const baseRpm = 7.52;
+        const densitySlider = document.getElementById('ad-density');
+        const viewabilitySlider = document.getElementById('viewability-boost');
+        const mixSlider = document.getElementById('ad-mix');
+        
+        function updateSimulator() {
+            const density = parseFloat(densitySlider.value);
+            const viewability = parseFloat(viewabilitySlider.value);
+            const mix = parseFloat(mixSlider.value);
+            
+            document.getElementById('ad-density-val').textContent = density;
+            document.getElementById('viewability-boost-val').textContent = viewability;
+            document.getElementById('ad-mix-val').textContent = mix;
+
+            // Simplified demo formula
+            const densityFactor = 1 + (density - 3) * 0.15;
+            const viewabilityFactor = 1 + viewability / 100;
+            const mixFactor = 1 + mix / 100 * 0.5;
+            
+            const predictedRpm = baseRpm * densityFactor * viewabilityFactor * mixFactor;
+            
+            document.getElementById('predicted-rpm-value').textContent = `$${predictedRpm.toFixed(2)}`;
+        }
+        
+        [densitySlider, viewabilitySlider, mixSlider].forEach(slider => {
+            slider.addEventListener('input', updateSimulator);
+        });
+
+        // --- Historical Chart ---
+        const historyLayout = { ...plotTheme, title: { ...plotTheme.title, text: 'Daily RPM - Last 30 Days' } };
+        const days = Array.from({length: 30}, (_, i) => i + 1);
+        const historicalRpm = days.map(d => 6.5 + Math.sin(d / 4) * 0.5 + Math.random() * 0.5);
+
+        Plotly.newPlot('rpm-history-chart', [{
+            x: days,
+            y: historicalRpm,
+            type: 'scatter',
+            mode: 'lines',
+            fill: 'tozeroy',
+            line: { color: plotTheme.colorway[0] }
+        }], historyLayout, { responsive: true });
+
+=======
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background-color: #f0f2f5; color: #333; margin: 0; padding: 20px; }
+        h1 { text-align: center; color: #1a2538; }
+        .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 20px; }
+        .card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.05); }
+        .card h2 { margin-top: 0; font-size: 1.2em; border-bottom: 2px solid #eef; padding-bottom: 10px; }
+        .chart-container { height: 300px; }
+        .simulator-controls { display: flex; flex-direction: column; gap: 15px; margin-top: 20px; }
+        .simulator-controls label { font-weight: bold; }
+        .simulator-controls input[type="range"] { width: 100%; }
+        #predicted-rpm { font-size: 2em; font-weight: bold; color: #10b981; text-align: center; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Publisher Health & Yield Optimization</h1>
+    <p style="text-align:center; max-width: 800px; margin: 0 auto 20px;">
+        <strong>Narrative:</strong> How can we help our key publishers earn more without sacrificing audience loyalty?
+    </p>
+
+    <div class="dashboard">
+        <div class="card">
+            <h2>Page RPM (Revenue Per Mille)</h2>
+            <div id="rpm-chart" class="chart-container"></div>
+        </div>
+        <div class="card">
+            <h2>Ad Fill Rate & Viewability Score</h2>
+            <div id="fill-view-chart" class="chart-container"></div>
+        </div>
+        <div class="card">
+            <h2>Ad CTR (Click-Through Rate)</h2>
+            <div id="ctr-chart" class="chart-container"></div>
+        </div>
+        <div class="card">
+            <h2>"Wow" Feature: RPM Simulator</h2>
+            <p>Adjust parameters to see the projected impact on Page RPM for a publisher.</p>
+            <div class="simulator-controls">
+                <div>
+                    <label for="ad-density">Ad Density: <span id="ad-density-value">50</span>%</label>
+                    <input type="range" id="ad-density" min="10" max="100" value="50">
+                </div>
+                <div>
+                    <label for="video-ad-ratio">Video Ad Ratio: <span id="video-ad-ratio-value">30</span>%</label>
+                    <input type="range" id="video-ad-ratio" min="0" max="100" value="30">
+                </div>
+            </div>
+            <div id="predicted-rpm-display">
+                <h3>Predicted Page RPM:</h3>
+                <div id="predicted-rpm">$12.50</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const publishers = ['Publisher A', 'Publisher B', 'Publisher C', 'Publisher D'];
+        const dates = ['2023-01-01', '2023-02-01', '2023-03-01', '2023-04-01'];
+
+        // --- Page RPM Chart ---
+        Plotly.newPlot('rpm-chart', [{
+            x: dates, y: [10.5, 11.2, 12.1, 11.8], mode: 'lines+markers', name: 'Publisher A'
+        }, {
+            x: dates, y: [8.9, 9.5, 9.2, 10.1], mode: 'lines+markers', name: 'Publisher B'
+        }], { title: 'Monthly Page RPM Trend' });
+
+        // --- Ad Fill Rate & Viewability ---
+        Plotly.newPlot('fill-view-chart', [{
+            x: publishers, y: [95, 92, 88, 98], name: 'Fill Rate (%)', type: 'bar'
+        }, {
+            x: publishers, y: [75, 82, 70, 78], name: 'Viewability (%)', type: 'bar'
+        }], { title: 'Fill Rate vs. Viewability', barmode: 'group' });
+
+        // --- Ad CTR Chart ---
+        Plotly.newPlot('ctr-chart', [{
+            type: 'funnelarea',
+            values: [50000, 45000, 30000, 15000, 5000],
+            text: ["Total Impressions", "Viewable Impressions", "Clicks", "Engagements", "Conversions"],
+             marker: {
+                colors: ["#6366f1", "#818cf8", "#a5b4fc", "#c7d2fe", "#e0e7ff"],
+            }
+        }], { title: 'Ad Engagement Funnel' });
+
+        // --- RPM Simulator Logic ---
+        const adDensitySlider = document.getElementById('ad-density');
+        const videoAdRatioSlider = document.getElementById('video-ad-ratio');
+        const adDensityValue = document.getElementById('ad-density-value');
+        const videoAdRatioValue = document.getElementById('video-ad-ratio-value');
+        const predictedRpmDiv = document.getElementById('predicted-rpm');
+
+        function updateSimulation() {
+            const density = adDensitySlider.value / 100; // as decimal
+            const videoRatio = videoAdRatioSlider.value / 100; // as decimal
+            
+            // Simple predictive model: base RPM + bonus for density + bigger bonus for video ads
+            const baseRpm = 8.0;
+            const densityFactor = 5; // up to $5 extra for max density
+            const videoFactor = 10; // up to $10 extra for all-video ads
+            
+            const predictedRpm = baseRpm + (density * densityFactor) + (videoRatio * videoFactor * density);
+            
+            adDensityValue.textContent = adDensitySlider.value;
+            videoAdRatioValue.textContent = videoAdRatioSlider.value;
+            predictedRpmDiv.textContent = `$${predictedRpm.toFixed(2)}`;
+        }
+
+        adDensitySlider.addEventListener('input', updateSimulation);
+        videoAdRatioSlider.addEventListener('input', updateSimulation);
+
+        // Initial calculation
+        updateSimulation();
+>>>>>>> 25294c0 (Add new dashboards for BI Executive Command Center, Advertiser Campaign Performance, BI Pipeline Health & Data Trust, CEO & Executive Pulse, and Publisher Health & Yield Optimization. Include necessary HTML structure, styles, and Plotly visualizations for data representation. Also, add .DS_Store files for directory management.)
+    </script>
+</body>
+</html> 
