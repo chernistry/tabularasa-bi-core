@@ -277,17 +277,36 @@ mvn clean package
 
 ## ✅ Running Tests
 
-To run all unit and integration tests for the project, use the following Maven command from the project root:
+To run the complete end-to-end test for the Q1 Spark Streaming pipeline, use the dedicated test script. This script automates the entire process in a clean, containerized environment, ensuring reproducibility and avoiding local dependency issues.
 
+**Prerequisites:**
+- Docker Desktop (or Docker Engine with Docker Compose) must be running.
+
+**Steps:**
+1. Navigate to the `root/scripts` directory:
+   ```bash
+   cd root/scripts
+   ```
+2. Make the script executable (if you haven't already):
+   ```bash
+   chmod +x run_e2e_test.sh
+   ```
+3. Run the script:
+   ```bash
+   ./run_e2e_test.sh
+   ```
+
+The script will:
+- Build the required Java artifacts.
+- Start all necessary services (Spark, Kafka, PostgreSQL) using Docker.
+- Submit the Spark job, produce sample data to Kafka, and wait for processing.
+- Verify the results by querying the PostgreSQL database.
+- Automatically tear down the environment upon completion.
+
+For unit and integration tests, you can still use the standard Maven command from the project root:
 ```bash
 mvn test
 ```
-
-**Note:** Property-based Spark tests are guaranteed to pass on MacOS/Linux with JDK 11. In Docker images based on openjdk:11-jdk-slim, native JVM/GLIBC limitations may cause failures. Testcontainers-based integration tests require Docker socket access and may not work in sandboxed Docker environments. For CI/CD, use full Linux images or run tests on the host.
-
-**Spark Streaming tests:**
-- Coverage includes unit, integration, edge-case, and property-based tests (random event generation, aggregation invariants check, window correctness).
-- To run the property-based test: execute `mvn test -Dtest=AdEventsSparkPropertyTest` from the project root.
 
 ---
 
