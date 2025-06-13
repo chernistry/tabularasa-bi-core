@@ -69,6 +69,21 @@ echo "🛠️ Preparing environment..."
 chmod -R a+r ../docker/prometheus || true
 chmod -R a+r ../docker/alertmanager || true
 
+# Build Spark application
+echo "📦 Building Spark application..."
+cd ../q1_realtime_stream_processing
+mvn clean package -DskipTests > /dev/null
+cd ../scripts
+
+# Ensure spark_apps directory exists and copy the JAR
+SPARK_APPS_DIR="../docker/spark_apps"
+JAR_SRC="../q1_realtime_stream_processing/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar"
+JAR_DEST="$SPARK_APPS_DIR/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar"
+
+mkdir -p "$SPARK_APPS_DIR"
+echo "🚚 Copying application JAR to Spark's app directory..."
+cp "$JAR_SRC" "$JAR_DEST"
+
 # Always start docker-compose from the correct directory
 pushd ../docker > /dev/null
 echo "🧹 Cleaning up previous run (if any)..."
@@ -94,26 +109,34 @@ if ! docker ps | grep -q "alertmanager"; then
 fi
 echo "✅ Monitoring stack is running."
 
-# Build Spark application
-echo "📦 Building Spark application..."
-cd ../q1_realtime_stream_processing
-mvn clean package -DskipTests > /dev/null
-cd ../scripts
+# Copy JAR directly into containers since volume mounting isn't working
+echo "📥 Copying JAR directly into Spark containers..."
+docker cp "$JAR_SRC" spark-master:/opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar
+docker cp "$JAR_SRC" spark-worker:/opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar
 
-# --- FIX: Copy the built JAR to the directory mounted by Spark containers ---
-echo "🚚 Copying application JAR to Spark's app directory..."
-cp ../q1_realtime_stream_processing/target/*.jar ../docker/spark_apps/
+# Verify JAR file exists on master and worker
+echo "🔍 Verifying JAR file exists on Spark containers..."
+docker exec spark-master ls -la /opt/spark_apps/
+docker exec spark-worker ls -la /opt/spark_apps/
 
 # Submit Spark job
 echo "🔁 Submitting Spark job to master..."
-docker exec spark-master \
-spark-submit \
-  --class com.tabularasa.bi.Q1RealtimeStreamProcessing \
-  --master spark://spark-master:7077 \
-  --deploy-mode cluster \
-  --executor-memory 1G \
-  --total-executor-cores 1 \
-  /opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar
+
+# First verify that the JAR file exists and is readable
+echo "Verifying JAR file in container:"
+docker exec spark-master ls -la /opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar
+
+# Bypass spark-submit and run directly with java to avoid Ivy issues
+echo "Running Spark application using direct Java command..."
+docker exec -e SPARK_LOCAL_IP=spark-master spark-master \
+  java -cp "/opt/spark/jars/*:/opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar" \
+  -Dspark.master=local[*] \
+  -Dspring.kafka.bootstrap-servers=kafka:9092 \
+  -Dspring.kafka.consumer.bootstrap-servers=kafka:9092 \
+  -Dspring.kafka.consumer.auto-offset-reset=earliest \
+  -Dspring.kafka.producer.bootstrap-servers=kafka:9092 \
+  -Dspring.profiles.active=simple \
+  com.tabularasa.bi.q1_realtime_stream_processing.Q1RealtimeStreamProcessingApplication
 
 echo "📤 Producing sample data to Kafka..."
 docker exec kafka \
