@@ -32,7 +32,7 @@ public class AdEventSparkStreamer {
     public static void main(String[] args) {
         // Basic argument parsing
         if (args.length < 4) {
-            logger.error("Usage: AdEventSparkStreamer <kafka-bootstrap-servers> <ad-events-topic> <db-url> <db-user> [<db-password>]");
+            LOGGER.error("Usage: AdEventSparkStreamer <kafka-bootstrap-servers> <ad-events-topic> <db-url> <db-user> [<db-password>]");
             System.exit(1);
         }
 
@@ -50,7 +50,7 @@ public class AdEventSparkStreamer {
         try {
             streamer.start(spark, kafkaBootstrapServers, adEventsTopic, dbUrl, dbUsername, dbPassword);
         } catch (TimeoutException | StreamingQueryException e) {
-            logger.error("Spark streaming job failed.", e);
+            LOGGER.error("Spark streaming job failed.", e);
             spark.stop();
         }
     }
@@ -58,7 +58,7 @@ public class AdEventSparkStreamer {
     public void start(SparkSession spark, String kafkaBootstrapServers, String adEventsTopic,
                       String dbUrl, String dbUsername, String dbPassword) throws TimeoutException, StreamingQueryException {
 
-        logger.info("Initializing Spark Structured Streaming job for topic: {}", adEventsTopic);
+        LOGGER.info("Initializing Spark Structured Streaming job for topic: {}", adEventsTopic);
 
         Dataset<Row> kafkaDF = spark
                 .readStream()
@@ -85,13 +85,13 @@ public class AdEventSparkStreamer {
                         sum("bid_amount_usd").alias("total_bid_amount")
                 );
 
-        logger.info("Starting streaming query with windowing to PostgreSQL...");
+        LOGGER.info("Starting streaming query with windowing to PostgreSQL...");
 
         StreamingQuery streamingQuery = windowedDF
                 .writeStream()
                 .outputMode("update")
                 .foreachBatch((batchDF, batchId) -> {
-                    logger.info("Processing batch: {}", batchId);
+                    LOGGER.info("Processing batch: {}", batchId);
                     batchDF.persist();
 
                     Dataset<Row> processedDF = batchDF
@@ -129,15 +129,15 @@ public class AdEventSparkStreamer {
                                     if (count % 1000 == 0) {
                                         statement.executeBatch();
                                         connection.commit();
-                                        logger.info("Committed {} records in partition.", count);
+                                        LOGGER.info("Committed {} records in partition.", count);
                                     }
                                 }
                                 statement.executeBatch();
                                 connection.commit();
-                                logger.info("Finished processing partition, committed {} records.", count);
+                                LOGGER.info("Finished processing partition, committed {} records.", count);
                             }
                         } catch (SQLException e) {
-                            logger.error("Error processing partition or writing to DB", e);
+                            LOGGER.error("Error processing partition or writing to DB", e);
                             throw new RuntimeException("Error in foreachPartition", e);
                         }
                     });
@@ -147,7 +147,7 @@ public class AdEventSparkStreamer {
                 .option("checkpointLocation", "/tmp/spark-checkpoints/q1_ad_stream")
                 .start();
 
-        logger.info("Spark Streaming job started. Query ID: {}", streamingQuery.id());
+        LOGGER.info("Spark Streaming job started. Query ID: {}", streamingQuery.id());
         streamingQuery.awaitTermination();
     }
 }

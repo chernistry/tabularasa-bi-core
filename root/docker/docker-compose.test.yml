@@ -5,6 +5,7 @@ services:
   # --► PostgreSQL for app data
   tabularasa_postgres_db:
     image: postgres:14.11-alpine
+    container_name: postgres
     ports:
       - "5432:5432"
     environment:
@@ -24,6 +25,7 @@ services:
 
   zookeeper:
     image: bitnami/zookeeper:3.9
+    container_name: zookeeper
     ports:
       - "2181:2181"
     environment:
@@ -36,6 +38,7 @@ services:
 
   kafka:
     image: bitnami/kafka:3.7
+    container_name: kafka
     ports:
       - "9092:9092"
     environment:
@@ -56,6 +59,7 @@ services:
 
   kafka-ui:
     image: provectuslabs/kafka-ui:v0.7.2
+    container_name: kafka-ui
     ports:
       - "8088:8080"
     environment:
@@ -71,6 +75,7 @@ services:
   # --► Spark master and worker for distributed processing
   spark-master:
     image: bitnami/spark:3.5
+    container_name: spark-master
     ports:
       - "8081:8080"
       - "7077:7077"
@@ -81,13 +86,14 @@ services:
       - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
       - SPARK_SSL_ENABLED=no
     volumes:
-      - ./spark_apps:/opt/spark_apps
-      - ./spark_data:/opt/spark_data
+      - ${PROJECT_ROOT}/root/docker/spark_apps:/opt/spark_apps
+      - ${PROJECT_ROOT}/root/docker/spark_data:/opt/spark_data
     networks:
       - bi_network
 
   spark-worker:
     image: bitnami/spark:3.5
+    container_name: spark-worker
     depends_on:
       - spark-master
     ports:
@@ -102,25 +108,27 @@ services:
       - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
       - SPARK_SSL_ENABLED=no
     volumes:
-      - ./spark_apps:/opt/spark_apps
-      - ./spark_data:/opt/spark_data
+      - ${PROJECT_ROOT}/root/docker/spark_apps:/opt/spark_apps
+      - ${PROJECT_ROOT}/root/docker/spark_data:/opt/spark_data
     networks:
       - bi_network
 
   # ================== MONITORING SERVICES ==================
   # --► Prometheus for metrics collection
   prometheus:
-    image: prom/prometheus:v2.47.0
+    build:
+      context: ./prometheus
+      dockerfile: Dockerfile
+    container_name: prometheus
     ports:
       - "9090:9090"
     volumes:
-      - ./prometheus:/etc/prometheus
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
       - '--web.enable-lifecycle'
     restart: always
     networks:
@@ -128,11 +136,14 @@ services:
 
   # --► Alertmanager for handling alerts
   alertmanager:
-    image: prom/alertmanager:v0.26.0
+    build:
+      context: ./alertmanager
+      dockerfile: Dockerfile
+    container_name: alertmanager
     ports:
       - "9093:9093"
     volumes:
-      - ./alertmanager:/etc/alertmanager
+      - alertmanager_data:/alertmanager
     command:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
       - '--storage.path=/alertmanager'
@@ -143,12 +154,13 @@ services:
   # --► Grafana for visualization
   grafana:
     image: grafana/grafana:10.2.0
+    container_name: grafana
     ports:
       - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
-      - ../provisioning/grafana/provisioning:/etc/grafana/provisioning
-      - ../dashboards:/var/lib/grafana/dashboards
+      - ${PROJECT_ROOT}/root/docker/grafana/provisioning/:/etc/grafana/provisioning/
+      - ${PROJECT_ROOT}/root/docker/grafana/dashboards:/etc/grafana/dashboards
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
@@ -167,4 +179,5 @@ volumes:
   zookeeper_data:
   kafka_data:
   prometheus_data:
-  grafana_data: 
+  grafana_data:
+  alertmanager_data: 
