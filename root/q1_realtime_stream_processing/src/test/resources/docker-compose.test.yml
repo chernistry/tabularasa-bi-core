@@ -43,8 +43,14 @@ services:
       - "7077:7077"
     environment:
       - SPARK_MODE=master
-    volumes:
-      - ./spark_apps:/opt/spark_apps
+    networks:
+      - bi_network
+
+  spark-worker:
+    image: bitnami/spark:3.5
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
     networks:
       - bi_network
 

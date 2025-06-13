@@ -77,4 +77,4 @@ class CampaignStatsControllerTest {
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest());
     }
-} 
+}

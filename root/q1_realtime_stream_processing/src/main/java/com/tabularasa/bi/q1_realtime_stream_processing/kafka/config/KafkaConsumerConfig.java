@@ -72,7 +72,7 @@ public class KafkaConsumerConfig {
         // Let Spark manage offsets
         kafkaParams.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
         // Define behavior when no GCloud offset is found or current offset does not exist on server
-        kafkaParams.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest"); 
+        kafkaParams.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         return kafkaParams;
     }
-} 
+}

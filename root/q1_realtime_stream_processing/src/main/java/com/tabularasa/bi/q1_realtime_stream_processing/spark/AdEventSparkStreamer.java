@@ -20,7 +20,7 @@ import static org.apache.spark.sql.functions.*;
 
 public class AdEventSparkStreamer {
 
-    private static final Logger logger = LoggerFactory.getLogger(AdEventSparkStreamer.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(AdEventSparkStreamer.class);
     private static final String TARGET_TABLE = "aggregated_campaign_stats";
     private static final StructType AD_EVENT_SCHEMA = new StructType()
             .add("timestamp", "timestamp")
@@ -150,4 +150,4 @@ public class AdEventSparkStreamer {
         logger.info("Spark Streaming job started. Query ID: {}", streamingQuery.id());
         streamingQuery.awaitTermination();
     }
-} 
+}

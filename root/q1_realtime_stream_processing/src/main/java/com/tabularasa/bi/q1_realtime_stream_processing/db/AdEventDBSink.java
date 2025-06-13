@@ -1,127 +1,140 @@
 package com.tabularasa.bi.q1_realtime_stream_processing.db;
 
-import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Row;
+import com.tabularasa.bi.q1_realtime_stream_processing.model.AdEvent;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.sql.Timestamp;
 import org.apache.spark.sql.ForeachWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.SQLException;
-import java.io.Serializable;
-import java.sql.PreparedStatement;
 
+/**
+ * A Spark ForeachWriter to sink AdEvent data into a database.
+ *
+ * <p>This class is responsible for managing the database connection lifecycle
+ * and writing individual AdEvent records to the 'ad_events' table.
+ * It is designed to be serializable and used within a Spark Streaming query.
+ */
 @Component
-public class AdEventDBSink implements Serializable {
+public final class AdEventDBSink extends ForeachWriter<AdEvent> {
 
-    private static final Logger logger = LoggerFactory.getLogger(AdEventDBSink.class);
-    private static final long serialVersionUID = 1L;
-    
+    /**
+     * Logger for this class.
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(AdEventDBSink.class);
+
+    /**
+     * The JDBC URL for the database connection.
+     * Injected from application properties.
+     */
     @Value("${spring.datasource.url}")
-    private String dbUrl;
-    
+    private String url;
+
+    /**
+     * The username for the database connection.
+     * Injected from application properties.
+     */
     @Value("${spring.datasource.username}")
-    private String dbUsername;
-    
+    private String username;
+
+    /**
+     * The password for the database connection.
+     * Injected from application properties.
+     */
     @Value("${spring.datasource.password}")
-    private String dbPassword;
-
-    public AdEventDBSink() {
-        // Required empty constructor for Spring
-    }
+    private String password;
 
     /**
-     * Creates a ForeachWriter for saving aggregated campaign data to PostgreSQL
+     * The database connection instance. It is transient to avoid serialization issues
+     * as connections are not serializable and should be managed per partition.
      */
-    public ForeachWriter<Row> createSinkWriter() {
-        return new ForeachWriter<Row>() {
-            private Connection connection;
-            private static final String INSERT_SQL = 
-                "INSERT INTO aggregated_campaign_stats " +
-                "(campaign_id, event_type, window_start_time, event_count, total_bid_amount, updated_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?) " +
-                "ON CONFLICT (campaign_id, event_type, window_start_time) " +
-                "DO UPDATE SET " +
-                "event_count = EXCLUDED.event_count, " +
-                "total_bid_amount = EXCLUDED.total_bid_amount, " +
-                "updated_at = EXCLUDED.updated_at";
-
-            @Override
-            public boolean open(long partitionId, long epochId) {
-                try {
-                    logger.debug("Opening database connection for partition: {}, epoch: {}", partitionId, epochId);
-                    connection = DriverManager.getConnection(dbUrl, dbUsername, dbPassword);
-                    return true;
-                } catch (SQLException e) {
-                    logger.error("Failed to open database connection", e);
-                    return false;
-                }
-            }
-
-            @Override
-            public void process(Row row) {
-                try (PreparedStatement stmt = connection.prepareStatement(INSERT_SQL)) {
-                    String campaignId = row.getAs("campaign_id");
-                    String eventType = row.getAs("event_type");
-                    java.sql.Timestamp windowStart = row.getAs("window_start_time");
-                    long eventCount = row.getAs("event_count");
-                    double totalBidAmount = row.getAs("total_bid_amount");
-                    java.sql.Timestamp now = new java.sql.Timestamp(System.currentTimeMillis());
-
-                    stmt.setString(1, campaignId);
-                    stmt.setString(2, eventType);
-                    stmt.setTimestamp(3, windowStart);
-                    stmt.setLong(4, eventCount);
-                    stmt.setDouble(5, totalBidAmount);
-                    stmt.setTimestamp(6, now);
-
-                    int updated = stmt.executeUpdate();
-                    logger.debug("Stored aggregated stats for campaign {}, type {}: {} rows affected", campaignId, eventType, updated);
-                } catch (SQLException e) {
-                    logger.error("Error storing aggregated stats", e);
-                }
-            }
-
-            @Override
-            public void close(Throwable errorOrNull) {
-                if (connection != null) {
-                    try {
-                        connection.close();
-                        logger.debug("Database connection closed");
-                    } catch (SQLException e) {
-                        logger.error("Error closing database connection", e);
-                    }
-                }
-                if (errorOrNull != null) {
-                    logger.error("Error in sink writer", errorOrNull);
-                }
-            }
-        };
-    }
+    private transient Connection connection;
 
     /**
-     * Saves a Dataset with aggregated campaign data to the database
+     * The prepared statement for inserting ad events. It is transient for the same
+     * reason as the connection.
      */
-    public void saveAggregatedCampaignStats(Dataset<Row> aggregatedStats) {
-        if (aggregatedStats == null || aggregatedStats.isEmpty()) {
-            logger.info("No aggregated stats to save");
-            return;
-        }
+    private transient PreparedStatement statement;
+
+    /**
+     * The SQL query for inserting an ad event into the database.
+     */
+    private static final String INSERT_QUERY = "INSERT INTO ad_events "
+            + "(event_id, ad_creative_id, user_id, event_type, event_timestamp, processing_timestamp) "
+            + "VALUES (?, ?, ?, ?, ?, ?)";
+
+    // Column indices for the prepared statement
+    private static final int EVENT_ID_COL = 1;
+    private static final int AD_CREATIVE_ID_COL = 2;
+    private static final int USER_ID_COL = 3;
+    private static final int EVENT_TYPE_COL = 4;
+    private static final int EVENT_TIMESTAMP_COL = 5;
+    private static final int PROCESSING_TIMESTAMP_COL = 6;
+
+
+    /**
+     * Called when a partition is opened. This method establishes the database
+     * connection and prepares the SQL statement for batch inserts.
+     *
+     * @param partitionId A unique id for the partition.
+     * @param epochId     A unique id for the epoch.
+     * @return true if the connection was successfully opened; false otherwise.
+     */
+    @Override
+    public boolean open(final long partitionId, final long epochId) {
         try {
-            logger.info("Saving {} aggregated campaign stats records to database", aggregatedStats.count());
-            aggregatedStats.write()
-                .format("jdbc")
-                .option("url", dbUrl)
-                .option("dbtable", "aggregated_campaign_stats")
-                .option("user", dbUsername)
-                .option("password", dbPassword)
-                .mode("append")
-                .save();
-            logger.info("Successfully saved aggregated campaign stats to database");
-        } catch (Exception e) {
-            logger.error("Failed to save aggregated campaign stats to database", e);
+            connection = DriverManager.getConnection(url, username, password);
+            statement = connection.prepareStatement(INSERT_QUERY);
+            return true;
+        } catch (SQLException e) {
+            LOGGER.error("Failed to open database connection for partition {}", partitionId, e);
+            return false;
         }
     }
-} 
+
+    /**
+     * Called for each record in the partition. This method sets the parameters
+     * on the prepared statement and executes the insert.
+     *
+     * @param value The AdEvent record to process.
+     */
+    @Override
+    public void process(final AdEvent value) {
+        try {
+            statement.setString(EVENT_ID_COL, value.getEventId());
+            statement.setString(AD_CREATIVE_ID_COL, value.getAdCreativeId());
+            statement.setString(USER_ID_COL, value.getUserId());
+            statement.setString(EVENT_TYPE_COL, value.getEventType());
+            statement.setTimestamp(EVENT_TIMESTAMP_COL, Timestamp.valueOf(value.getTimestamp()));
+            statement.setTimestamp(PROCESSING_TIMESTAMP_COL, new Timestamp(System.currentTimeMillis()));
+            statement.executeUpdate();
+        } catch (SQLException e) {
+            LOGGER.error("Failed to process ad event with ID: {}", value.getEventId(), e);
+        }
+    }
+
+    /**
+     * Called when the processing of a partition is complete. This method closes
+     * the database connection and statement resources.
+     *
+     * @param errorOrNull The error that caused the processing to stop, or null if it was stopped
+     *                    gracefully.
+     */
+    @Override
+    public void close(final Throwable errorOrNull) {
+        try {
+            if (statement != null) {
+                statement.close();
+            }
+            if (connection != null) {
+                connection.close();
+            }
+        } catch (SQLException e) {
+            LOGGER.error("Failed to close database connection", e);
+        }
+    }
+}

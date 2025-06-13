@@ -9,18 +9,30 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Profile;
 
+/**
+ * Main entry point for the Q1 Realtime Stream Processing application.
+ */
 @SpringBootApplication
 public class Q1RealtimeStreamProcessingApplication {
-    
-    private static final Logger logger = LoggerFactory.getLogger(Q1RealtimeStreamProcessingApplication.class);
 
-    public static void main(String[] args) {
+    /**
+     * Logger for this class.
+     */
+    private static final Logger LOGGER =
+            LoggerFactory.getLogger(Q1RealtimeStreamProcessingApplication.class);
+
+    /**
+     * Main method to run the Spring Boot application.
+     *
+     * @param args Command line arguments.
+     */
+    public static void main(final String[] args) {
         try {
             // System.setProperty("hadoop.home.dir", "/"); // Moved to SparkConfig
             // System.setProperty("java.security.manager", "allow"); // Moved to SparkConfig
             SpringApplication.run(Q1RealtimeStreamProcessingApplication.class, args);
         } catch (Exception e) {
-            logger.error("Critical error during application startup", e);
+            LOGGER.error("Critical error during application startup", e);
             System.exit(1);
         }
     }
@@ -28,22 +40,25 @@ public class Q1RealtimeStreamProcessingApplication {
     /**
      * Checks Spark availability and logs status.
      * This bean is only active when the 'spark' profile is enabled.
+     *
+     * @param sparkSession The Spark session.
+     * @return A CommandLineRunner bean.
      */
     @Bean
     @Profile("spark")
-    public CommandLineRunner checkSparkAvailability(SparkSession sparkSession) {
+    public CommandLineRunner checkSparkAvailability(final SparkSession sparkSession) {
         return args -> {
             if (sparkSession == null) {
-                logger.warn("=====================================");
-                logger.warn("WARNING: SparkSession is not initialized!");
-                logger.warn("Spark stream processing will NOT be available.");
-                logger.warn("Only REST API and Kafka Producer features will be available.");
-                logger.warn("=====================================");
+                LOGGER.warn("=====================================");
+                LOGGER.warn("WARNING: SparkSession is not initialized!");
+                LOGGER.warn("Spark stream processing will NOT be available.");
+                LOGGER.warn("Only REST API and Kafka Producer features will be available.");
+                LOGGER.warn("=====================================");
             } else {
-                logger.info("SparkSession initialized successfully.");
-                logger.info("Spark version: {}", sparkSession.version());
-                logger.info("Spark running in mode: {}", sparkSession.sparkContext().master());
+                LOGGER.info("SparkSession initialized successfully.");
+                LOGGER.info("Spark version: {}", sparkSession.version());
+                LOGGER.info("Spark running in mode: {}", sparkSession.sparkContext().master());
             }
         };
     }
-} 
+}

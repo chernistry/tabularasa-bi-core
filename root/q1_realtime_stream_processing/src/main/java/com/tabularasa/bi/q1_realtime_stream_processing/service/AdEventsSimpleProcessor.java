@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class AdEventsSimpleProcessor {
 
-    private static final Logger logger = LoggerFactory.getLogger(AdEventsSimpleProcessor.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(AdEventsSimpleProcessor.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private final JdbcTemplate jdbcTemplate;
@@ -52,24 +52,24 @@ public class AdEventsSimpleProcessor {
         try {
             // Log the raw JSON received
             logger.debug("Received raw JSON from Kafka: {}", adEventJson);
-            
+
             JsonNode eventNode = objectMapper.readTree(adEventJson);
-            
+
             // Log parsed fields from JSON
             logger.debug("Parsing fields from JSON");
-            
+
             // Robust timestamp parsing to handle 'Z' (UTC)
             String timestampStr = eventNode.get("timestamp").asText();
             java.time.Instant instant = java.time.Instant.parse(timestampStr); // Handles 'Z' for UTC
             LocalDateTime timestamp = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
             logger.debug("Parsed timestamp: {}", timestamp);
-            
+
             String campaignId = eventNode.get("campaign_id").asText();
             logger.debug("Parsed campaignId: {}", campaignId);
-            
+
             String eventType = eventNode.get("event_type").asText();
             logger.debug("Parsed eventType: {}", eventType);
-            
+
             double bidAmount = eventNode.get("bid_amount_usd").asDouble();
             logger.debug("Parsed bidAmount: {}", bidAmount);
 
@@ -192,4 +192,4 @@ public class AdEventsSimpleProcessor {
                     '}';
         }
     }
-} 
+}

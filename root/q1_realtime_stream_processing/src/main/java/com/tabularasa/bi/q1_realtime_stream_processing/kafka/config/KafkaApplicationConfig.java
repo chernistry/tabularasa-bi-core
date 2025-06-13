@@ -26,4 +26,4 @@ public class KafkaApplicationConfig {
     // ==== KAFKA PROPERTIES ====
 
     // General application properties can be added here
-} 
+}

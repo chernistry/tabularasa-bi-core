@@ -46,4 +46,4 @@ public class CampaignStatsService {
             campaignId, Timestamp.valueOf(startTime), Timestamp.valueOf(endTime)
         );
     }
-} 
+}

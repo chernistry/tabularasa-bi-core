@@ -73,4 +73,4 @@ class CampaignStatsServiceTest {
         assertNotNull(actualStats);
         assertTrue(actualStats.isEmpty());
     }
-} 
+}

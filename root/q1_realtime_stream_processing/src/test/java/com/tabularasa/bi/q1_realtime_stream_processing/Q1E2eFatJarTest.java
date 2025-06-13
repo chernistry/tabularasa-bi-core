@@ -2,15 +2,20 @@ package com.tabularasa.bi.q1_realtime_stream_processing;
 
 import com.github.dockerjava.api.command.ExecCreateCmdResponse;
 import com.github.dockerjava.api.model.Frame;
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.DockerComposeContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import com.github.dockerjava.api.async.ResultCallback;
+import org.testcontainers.containers.KafkaContainer;
+import org.testcontainers.containers.Network;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.utility.DockerImageName;
+import org.testcontainers.junit.jupiter.Container;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -30,32 +35,65 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class Q1E2eFatJarTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(Q1E2eFatJarTest.class);
-    private static File DOCKER_COMPOSE_FILE;
+    private static final Logger LOGGER = LoggerFactory.getLogger(Q1E2eFatJarTest.class);
+    private static Network network = Network.newNetwork();
 
-    private static final String SPARK_MASTER_SERVICE = "spark-master";
-    private static final String KAFKA_SERVICE = "kafka";
-    private static final String POSTGRES_SERVICE = "tabularasa_postgres_db";
+    @Container
+    private static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:14.11-alpine")
+            .withDatabaseName("airflow")
+            .withUsername("airflow")
+            .withPassword("airflow")
+            .withNetwork(network)
+            .withNetworkAliases("postgres");
 
-    public static DockerComposeContainer<?> environment;
+    @Container
+    private static KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.0.1"))
+            .withNetwork(network)
+            .withNetworkAliases("kafka");
+
+    @Container
+    private static GenericContainer sparkMaster = new GenericContainer(DockerImageName.parse("bitnami/spark:3.5"))
+            .withExposedPorts(7077, 8080)
+            .withEnvironment("SPARK_MODE", "master")
+            .withNetwork(network)
+            .withNetworkAliases("spark-master");
+
+    @Container
+    private static GenericContainer sparkWorker = new GenericContainer(DockerImageName.parse("bitnami/spark:3.5"))
+            .withExposedPorts(8080)
+            .withEnvironment("SPARK_MODE", "worker")
+            .withEnvironment("SPARK_MASTER_URL", "spark://spark-master:7077")
+            .withNetwork(network)
+            .withNetworkAliases("spark-worker")
+            .dependsOn(sparkMaster);
 
     @BeforeAll
-    static void setup() throws Exception {
-        DOCKER_COMPOSE_FILE = new File(Q1E2eFatJarTest.class.getClassLoader().getResource("docker-compose.test.yml").getPath());
-        environment = new DockerComposeContainer<>(DOCKER_COMPOSE_FILE)
-                .withExposedService(POSTGRES_SERVICE, 5432, Wait.forListeningPort().withStartupTimeout(Duration.ofSeconds(120)))
-                .withExposedService(KAFKA_SERVICE, 9092)
-                .withExposedService(SPARK_MASTER_SERVICE, 8081, Wait.forHttp("/").forStatusCode(200).withStartupTimeout(Duration.ofSeconds(120)));
-        environment.start();
-        buildSparkJobJar();
-        prepareDatabase();
+    public static void setup() {
+        try {
+            postgres.start();
+            kafka.start();
+            sparkMaster.start();
+            sparkWorker.start();
+
+            // Set the JDBC URL, Kafka bootstrap servers, and Spark master URL dynamically
+            System.setProperty("POSTGRES_URL", postgres.getJdbcUrl());
+            System.setProperty("KAFKA_BOOTSTRAP_SERVERS", kafka.getBootstrapServers());
+            System.setProperty("SPARK_MASTER_URL", "spark://" + sparkMaster.getHost() + ":" + sparkMaster.getMappedPort(7077));
+
+            buildSparkJobJar();
+            prepareDatabase();
+        } catch (Exception e) {
+            logger.error("Failed to set up test environment", e);
+            throw new RuntimeException(e);
+        }
     }
 
     @AfterAll
-    static void teardown() {
-        if (environment != null) {
-            environment.stop();
-        }
+    public static void teardown() {
+        sparkWorker.stop();
+        sparkMaster.stop();
+        kafka.stop();
+        postgres.stop();
     }
 
     static void buildSparkJobJar() throws Exception {
@@ -73,7 +111,7 @@ public class Q1E2eFatJarTest {
 
     static void prepareDatabase() throws Exception {
         logger.info("Preparing database schema...");
-        String jdbcUrl = String.format("jdbc:postgresql://%s:%d/airflow", environment.getServiceHost(POSTGRES_SERVICE, 5432), environment.getServicePort(POSTGRES_SERVICE, 5432));
+        String jdbcUrl = String.format("jdbc:postgresql://%s:%d/airflow", postgres.getHost(), postgres.getMappedPort(5432));
         try (Connection conn = DriverManager.getConnection(jdbcUrl, "airflow", "airflow"); Statement stmt = conn.createStatement()) {
             stmt.execute("DROP TABLE IF EXISTS aggregated_campaign_stats;");
             stmt.execute("CREATE TABLE aggregated_campaign_stats (campaign_id VARCHAR(255), window_start_time TIMESTAMP, event_type VARCHAR(50), event_count BIGINT, total_bid_amount DECIMAL(18, 6), updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (campaign_id, window_start_time, event_type));");
@@ -85,7 +123,7 @@ public class Q1E2eFatJarTest {
     @Order(1)
     void submitSparkJobAndProduceData() throws Exception {
         logger.info("Submitting Spark job...");
-        String sparkContainerId = environment.getContainerByServiceName(SPARK_MASTER_SERVICE).orElseThrow().getContainerId();
+        String sparkContainerId = sparkMaster.getContainerId();
 
         String jarName = "q1_realtime_stream_processing-spark-job-0.0.1-SNAPSHOT.jar";
         String jarPath = "target/" + jarName;
@@ -98,7 +136,7 @@ public class Q1E2eFatJarTest {
                 "spark-submit --class com.tabularasa.bi.q1_realtime_stream_processing.spark.AdEventSparkStreamer " +
                         "--master spark://spark-master:7077 " +
                         "--packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.0,org.postgresql:postgresql:42.6.0 " +
-                        "/opt/spark_apps/%s kafka:9092 ad-events jdbc:postgresql://tabularasa_postgres_db:5432/airflow airflow airflow", jarName);
+                        "/opt/spark_apps/%s kafka:9092 ad-events jdbc:postgresql://postgres:5432/airflow airflow airflow", jarName);
 
         ExecCreateCmdResponse execCreateCmdResponse = DockerClientFactory.instance().client().execCreateCmd(sparkContainerId)
                 .withCmd("sh", "-c", sparkSubmitCommand)
@@ -122,7 +160,7 @@ public class Q1E2eFatJarTest {
         TimeUnit.SECONDS.sleep(20);
 
         logger.info("Producing data to Kafka...");
-        String kafkaContainerId = environment.getContainerByServiceName(KAFKA_SERVICE).orElseThrow().getContainerId();
+        String kafkaContainerId = kafka.getContainerId();
         String sampleData = "{\\\"timestamp\\\":\\\"2024-05-15T10:00:15Z\\\",\\\"campaign_id\\\":\\\"cmp_1\\\",\\\"event_type\\\":\\\"impression\\\",\\\"user_id\\\":\\\"usr_a\\\",\\\"bid_amount_usd\\\":0.05}\\n" +
                 "{\\\"timestamp\\\":\\\"2024-05-15T10:00:25Z\\\",\\\"campaign_id\\\":\\\"cmp_1\\\",\\\"event_type\\\":\\\"impression\\\",\\\"user_id\\\":\\\"usr_b\\\",\\\"bid_amount_usd\\\":0.06}\\n" +
                 "{\\\"timestamp\\\":\\\"2024-05-15T10:00:45Z\\\",\\\"campaign_id\\\":\\\"cmp_1\\\",\\\"event_type\\\":\\\"click\\\",\\\"user_id\\\":\\\"usr_a\\\",\\\"bid_amount_usd\\\":0.10}";
@@ -140,7 +178,7 @@ public class Q1E2eFatJarTest {
     @Order(2)
     void verifyResultsInDatabase() throws Exception {
         logger.info("Verifying results in PostgreSQL...");
-        String jdbcUrl = String.format("jdbc:postgresql://%s:%d/airflow", environment.getServiceHost(POSTGRES_SERVICE, 5432), environment.getServicePort(POSTGRES_SERVICE, 5432));
+        String jdbcUrl = String.format("jdbc:postgresql://%s:%d/airflow", postgres.getHost(), postgres.getMappedPort(5432));
         try (Connection conn = DriverManager.getConnection(jdbcUrl, "airflow", "airflow"); Statement stmt = conn.createStatement()) {
             ResultSet rs = stmt.executeQuery("SELECT * FROM aggregated_campaign_stats ORDER BY campaign_id, event_type");
             assertTrue(rs.next(), "Should have results for impressions.");
@@ -157,4 +195,4 @@ public class Q1E2eFatJarTest {
         }
         logger.info("Verification successful!");
     }
-} 
+}
