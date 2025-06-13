@@ -283,17 +283,17 @@ To run all unit and integration tests for the project, use the following Maven c
 mvn test
 ```
 
-**Note:** Integration tests, such as `SparkFullFlowIntegrationTest.java`, utilize Testcontainers. Ensure that Docker is running before executing the tests, as these tests will spin up Kafka and PostgreSQL containers.
+**Note:** Property-based Spark tests are guaranteed to pass on MacOS/Linux with JDK 11. In Docker images based on openjdk:11-jdk-slim, native JVM/GLIBC limitations may cause failures. Testcontainers-based integration tests require Docker socket access and may not work in sandboxed Docker environments. For CI/CD, use full Linux images or run tests on the host.
 
 **Spark Streaming tests:**
-- Coverage includes unit, integration, edge-case, and property-based tests (random event generation, aggregation invariants check).
+- Coverage includes unit, integration, edge-case, and property-based tests (random event generation, aggregation invariants check, window correctness).
 - To run the property-based test: execute `mvn test -Dtest=AdEventsSparkPropertyTest` from the project root.
 
 ---
 
 ## 📊 Project Status & Roadmap
 
-**Current Readiness:** ~75% (main deliverables are implemented, but property-based test for Spark is missing, gRPC/protobuf API, deployment and CI/CD are not implemented, and documentation polish is pending)
+**Current Readiness:** ~85% (property-based test for Spark implemented, gRPC/protobuf API, deployment and CI/CD are not implemented, and documentation polish is pending)
 
 **Next steps:**
 - Implement property-based test for Spark (AdEventsSparkPropertyTest.java is empty)
