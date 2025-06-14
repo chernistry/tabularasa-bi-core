@@ -162,4 +162,25 @@ kill $PRODUCER_PID || true
 echo "🧹 Cleaning up test environment..."
 pushd ../docker > /dev/null
 docker-compose -f docker-compose.test.yml down -v --remove-orphans
-popd > /dev/null 
+popd > /dev/null
+
+echo "\nPress <ENTER> to stop live streaming and shut everything down, or use Ctrl-C at any time..."
+read -r _
+
+# Cleanup function – stops Python producer & Docker stack
+cleanup() {
+  echo "\n🧹 Cleaning up test environment..."
+  # kill Python producer if still running
+  if [[ -n "${PRODUCER_PID:-}" ]] && kill -0 "$PRODUCER_PID" 2>/dev/null; then
+    echo "🔪 Terminating Python producer (PID $PRODUCER_PID)" && kill "$PRODUCER_PID" || true
+  fi
+  # Bring Docker stack down
+  pushd ../docker >/dev/null || exit 0
+  docker-compose -f docker-compose.test.yml down -v --remove-orphans >/dev/null 2>&1 || true
+  popd >/dev/null || true
+  echo "✅ Cleanup complete. Bye!"
+  exit 0
+}
+
+# Catch Ctrl-C / SIGINT / SIGTERM
+trap cleanup INT TERM 

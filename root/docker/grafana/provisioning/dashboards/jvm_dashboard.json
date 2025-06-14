@@ -1,5 +1,4 @@
-// ==== GRAFANA DASHBOARD: JVM METRICS ====
-// This dashboard visualizes JVM and HTTP metrics for TabulaRasa BI Core.
+
 {
   "annotations": {
     "list": [
