@@ -129,6 +129,7 @@ def stream_events(producer, input_file):
     finally:
         if producer:
             logging.info("👋 Closing Kafka producer...")
+            producer.flush()
             producer.close()
             logging.info("✅ Kafka producer closed.")
 

@@ -238,13 +238,17 @@ services:
     container_name: grafana
     ports:
       - "3000:3000"
+    user: "472"
     volumes:
-      - grafana_data:/var/lib/grafana
+      - ./grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
     environment:
+      - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      - GF_SECURITY_DISABLE_INITIAL_ADMIN_PASSWORD_CHANGE=true
+    command: sh -c "chown -R grafana:grafana /var/lib/grafana && /run.sh"
     restart: always
     depends_on:
       - prometheus
@@ -324,8 +328,6 @@ volumes:
   spark_jars:
     driver: local
   prometheus_data:
-    driver: local
-  grafana_data:
     driver: local
   jaeger_data:
     driver: local

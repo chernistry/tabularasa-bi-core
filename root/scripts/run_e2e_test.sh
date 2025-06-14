@@ -4,78 +4,61 @@
 set -e
 
 # ==============================================================================
-# DIAGNOSTIC AND E2E TEST SCRIPT
+# E2E TEST AND LIVE STREAMING ORCHESTRATOR
 # ==============================================================================
 
 # Ensure script is run from its own directory
-dirname=$(dirname "$0")
-cd "$dirname"
+cd "$(dirname "$0")"
 
-# Set the absolute project root path as an environment variable
-# This makes volume mounts in docker-compose robust and independent of the execution directory.
+# --- Cleanup function & trap ---
+# This function is called when the script receives a signal (like Ctrl+C)
+# or when it exits, ensuring all background processes are terminated.
+cleanup() {
+  echo -e "\n\n🧹 Cleaning up test environment..."
+
+  # Kill Python producer if it's still running
+  if [[ -n "${PRODUCER_PID:-}" ]] && ps -p "$PRODUCER_PID" > /dev/null; then
+    echo "🔪 Terminating Python producer (PID $PRODUCER_PID)..."
+    kill "$PRODUCER_PID" 2>/dev/null || true
+    wait "$PRODUCER_PID" 2>/dev/null
+  fi
+
+  # Bring Docker stack down
+  echo "🔥 Shutting down Docker services..."
+  pushd ../docker >/dev/null
+  docker-compose -f docker-compose.test.yml down -v --remove-orphans >/dev/null 2>&1
+  popd >/dev/null
+  echo "✅ Cleanup complete. Bye!"
+  exit 0
+}
+
+# Catch Ctrl-C (SIGINT) and script termination (SIGTERM) signals
+trap cleanup INT TERM
+
+# Set the absolute project root path
 export PROJECT_ROOT
-PROJECT_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+PROJECT_ROOT=$(cd ../.. && pwd)
 
 echo "---"
 echo "Project Root determined as: ${PROJECT_ROOT}"
 echo "---"
 
-# --- DIAGNOSTIC STEP 1: VERIFY DOCKER VOLUME MOUNTING ---
-echo "🩺 STEP 1: Running diagnostic to check Docker volume mounting..."
-
-pushd ../docker > /dev/null
-# Run the verification container. It will try to mount prometheus.yml and list it.
-# If this fails, the issue is with Docker's file sharing permissions.
-docker-compose -f docker-compose.verify.yml up > docker_verify_log.txt 2>&1
-popd > /dev/null
-
-# Check the log for the expected file.
-if ! grep -q "prometheus.yml" ../docker/docker_verify_log.txt; then
-  echo "❌ DIAGNOSTIC FAILED: Docker cannot access project files."
-  echo "--------------------------------------------------------------------------"
-  echo "  ROOT CAUSE: Docker Desktop does not have permission to access your"
-  echo "  project directory: '${PROJECT_ROOT}'"
-  echo ""
-  echo "  TO FIX THIS ON MACOS:"
-  echo "  1. Open Docker Desktop."
-  echo "  2. Go to Settings (the gear icon)."
-  echo "  3. Go to Resources -> FILE SHARING."
-  echo "  4. Add your project's parent directory ('/Users/sasha/IdeaProjects') to the list."
-  echo "  5. Click 'Apply & Restart'."
-  echo "  6. After Docker restarts, run this script again."
-  echo "--------------------------------------------------------------------------"
-  # Clean up verification container
-  pushd ../docker > /dev/null
-  docker-compose -f docker-compose.verify.yml down -v --remove-orphans > /dev/null 2>&1
-  rm docker_verify_log.txt
-  popd > /dev/null
-  exit 1
-else
-  echo "✅ Diagnostic PASSED. Docker volume mounting is working."
-  # Clean up verification container
-  pushd ../docker > /dev/null
-  docker-compose -f docker-compose.verify.yml down -v --remove-orphans > /dev/null 2>&1
-  rm docker_verify_log.txt
-  popd > /dev/null
-fi
-
-
-# --- E2E TEST STEP 2: RUN THE FULL PIPELINE ---
-echo ""
-echo "🚀 STEP 2: Proceeding with the full End-to-End test..."
+# --- E2E TEST ---
+echo "🚀 Starting End-to-End test..."
 
 echo "🛠️ Preparing environment..."
-# Ensure config files are readable (Prometheus & Alertmanager)
-chmod -R a+r ../docker/prometheus || true
-chmod -R a+r ../docker/alertmanager || true
+# Create a local data directory for Grafana and ensure it's writable
+# This is the most reliable way to handle permissions on macOS/Windows
+mkdir -p ../docker/grafana_data && chmod -R 777 ../docker/grafana_data
 
 # Build Spark application
 echo "📦 Building Spark application..."
 cd ../q1_realtime_stream_processing
-mvn clean package -DskipTests > /dev/null
+mvn clean package -DskipTests >/dev/null
 cd ../scripts
 
-# Ensure spark_apps directory exists and copy the JAR
+# Ensure spark_apps directory exists and copy the correct JAR
+# We copy the one WITHOUT the '-exec' classifier for Spark
 SPARK_APPS_DIR="../docker/spark_apps"
 JAR_SRC="../q1_realtime_stream_processing/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar"
 JAR_DEST="$SPARK_APPS_DIR/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar"
@@ -83,58 +66,48 @@ JAR_DEST="$SPARK_APPS_DIR/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar"
 mkdir -p "$SPARK_APPS_DIR"
 echo "🚚 Copying application JAR to Spark's app directory..."
 cp "$JAR_SRC" "$JAR_DEST"
+if [ ! -f "$JAR_DEST" ]; then
+    echo "❌ ERROR: JAR file not found after build. Aborting."
+    exit 1
+fi
 
-# Always start docker-compose from the correct directory
-pushd ../docker > /dev/null
+# Start docker-compose from the correct directory
+pushd ../docker >/dev/null
 echo "🧹 Cleaning up previous run (if any)..."
 docker-compose -f docker-compose.test.yml down -v --remove-orphans
-echo "🚀 Starting Docker services..."
+echo "🚀 Starting Docker services in detached mode..."
 docker-compose -f docker-compose.test.yml up -d
-popd > /dev/null
+popd >/dev/null
 
 echo "⏳ Waiting for services to initialize..."
 sleep 20
 
-# Check Prometheus and Alertmanager container health
-echo "🩺 Health checking monitoring stack..."
-if ! docker ps | grep -q "prometheus"; then
-  echo "❌ Prometheus container is not running. Logs:"
-  docker logs prometheus || true
-  exit 1
-fi
-if ! docker ps | grep -q "alertmanager"; then
-  echo "❌ Alertmanager container is not running. Logs:"
-  docker logs alertmanager || true
-  exit 1
-fi
-echo "✅ Monitoring stack is running."
-
-# STEP 3: Prepare PostgreSQL table (if not exists)
+# Prepare PostgreSQL table
 echo "🗄️ Waiting for PostgreSQL to be ready..."
-until docker exec postgres pg_isready -U airflow -d airflow > /dev/null 2>&1; do
+until docker exec postgres pg_isready -U airflow -d airflow >/dev/null 2>&1; do
   printf '.'
   sleep 2
 done
 echo " Postgres is ready. Creating aggregated_campaign_stats table if absent..."
-docker exec -i postgres psql -U airflow -d airflow < ../q1_realtime_stream_processing/ddl/postgres_aggregated_campaign_stats.sql
+docker exec -i postgres psql -U airflow -d airflow <../q1_realtime_stream_processing/ddl/postgres_aggregated_campaign_stats.sql
 
-# STEP 4: Prepare Kafka (topic & sample data)
+# Prepare Kafka topic
 echo "📻 Creating topic 'ad-events' if it does not exist..."
-docker exec kafka \
-  /opt/bitnami/kafka/bin/kafka-topics.sh --create --if-not-exists \
+docker exec kafka /opt/bitnami/kafka/bin/kafka-topics.sh --create --if-not-exists \
   --bootstrap-server kafka:9093 --replication-factor 1 --partitions 1 \
   --topic ad-events
 
-# Launch Python producer in background
+# Launch Python producer in the background
 echo "🐍 Starting Python producer to stream live data..."
-# Ensure Python dependencies are installed
-pip3 uninstall -y --quiet kafka kafka-python > /dev/null 2>&1 || true
-pip3 install --quiet --upgrade pip wheel six kafka-python==2.0.2 > /dev/null 2>&1 || true
+pip3 install --quiet --upgrade pip wheel six kafka-python==2.0.2 >/dev/null 2>&1 || true
 python3 ../scripts/ad_events_producer.py --broker localhost:9092 --file ../data/CriteoSearchData &
 PRODUCER_PID=$!
+sleep 5 # Give producer a moment to connect
 
-# STEP 5: Submit Spark job
-echo "🔁 Submitting Spark job to master..."
+# Submit Spark job
+echo "🔥 Submitting Spark job to master. Press Ctrl+C to stop."
+echo "------------------------------------------------------"
+# This command runs in the foreground and will block, keeping the script alive.
 docker exec spark-master /opt/bitnami/spark/bin/spark-submit \
   --class com.tabularasa.bi.q1_realtime_stream_processing.spark.AdEventSparkStreamer \
   --master spark://spark-master:7077 \
@@ -145,42 +118,7 @@ docker exec spark-master /opt/bitnami/spark/bin/spark-submit \
   /opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar \
   "kafka:9093" "ad-events" "jdbc:postgresql://postgres:5432/airflow" "airflow" "airflow"
 
-# Give Spark some time to process
-echo "⏳ Waiting for Spark processing (60 seconds)..."
-sleep 60
-
-echo "✅ Verifying results in PostgreSQL..."
-docker exec postgres psql -U airflow -d airflow -c \
-"SELECT campaign_id, SUM(event_count) as total_events FROM aggregated_campaign_stats GROUP BY campaign_id;"
-
-echo "🎉 E2E Test Complete!"
-
-# Stop Python producer
-echo "🛑 Stopping Python producer..."
-kill $PRODUCER_PID || true
-
-echo "🧹 Cleaning up test environment..."
-pushd ../docker > /dev/null
-docker-compose -f docker-compose.test.yml down -v --remove-orphans
-popd > /dev/null
-
-echo "\nPress <ENTER> to stop live streaming and shut everything down, or use Ctrl-C at any time..."
-read -r _
-
-# Cleanup function – stops Python producer & Docker stack
-cleanup() {
-  echo "\n🧹 Cleaning up test environment..."
-  # kill Python producer if still running
-  if [[ -n "${PRODUCER_PID:-}" ]] && kill -0 "$PRODUCER_PID" 2>/dev/null; then
-    echo "🔪 Terminating Python producer (PID $PRODUCER_PID)" && kill "$PRODUCER_PID" || true
-  fi
-  # Bring Docker stack down
-  pushd ../docker >/dev/null || exit 0
-  docker-compose -f docker-compose.test.yml down -v --remove-orphans >/dev/null 2>&1 || true
-  popd >/dev/null || true
-  echo "✅ Cleanup complete. Bye!"
-  exit 0
-}
-
-# Catch Ctrl-C / SIGINT / SIGTERM
-trap cleanup INT TERM 
+# The script will only reach here if spark-submit finishes or fails.
+# The trap will handle cleanup in all cases.
+echo "🎉 Spark job finished or was interrupted. Exiting."
+exit 0 

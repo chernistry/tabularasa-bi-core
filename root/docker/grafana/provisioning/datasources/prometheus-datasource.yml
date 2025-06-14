@@ -6,4 +6,9 @@ datasources:
     uid: tabularasa_prometheus
     url: http://prometheus:9090
     access: proxy
-    isDefault: true 
+    isDefault: true
+  - name: Jaeger
+    type: jaeger
+    url: http://jaeger:16686
+    access: proxy
+    isDefault: false 
