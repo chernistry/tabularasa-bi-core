@@ -53,4 +53,11 @@ scrape_configs:
 #    static_configs:
 #      - targets: ['spark-worker:8080']
 #        labels:
-#          service: 'spark-worker' 
+#          service: 'spark-worker'
+
+# Scrape configuration for PostgreSQL exporter
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          application: 'tabularasa-postgres' 

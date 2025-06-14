@@ -240,8 +240,7 @@ services:
       - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./grafana/provisioning/:/etc/grafana/provisioning/
-      - ./grafana/provisioning/dashboards:/etc/grafana/dashboards:ro
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_USERS_ALLOW_SIGN_UP=false
@@ -300,6 +299,18 @@ services:
     volumes:
       - ../q1_realtime_stream_processing/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar:/app/app.jar:ro
     command: ["java","-jar","/app/app.jar"]
+    networks:
+      - bi_network
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: postgres-exporter
+    environment:
+      - DATA_SOURCE_NAME=postgresql://airflow:airflow@tabularasa_postgres_db:5432/airflow?sslmode=disable
+    ports:
+      - "9187:9187"
+    depends_on:
+      - tabularasa_postgres_db
     networks:
       - bi_network
 
