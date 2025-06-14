@@ -6,16 +6,18 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Timer;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
  * Simple ad events processor that tracks metrics using Prometheus.
  */
-@Slf4j
 @Component
 public final class AdEventsProcessor implements Consumer<String> {
+
+    private static final Logger log = LoggerFactory.getLogger(AdEventsProcessor.class);
 
     private static final int SIMULATED_DELAY_MS = 100;
 

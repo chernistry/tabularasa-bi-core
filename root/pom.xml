@@ -23,7 +23,7 @@
         <java.version>17</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <spark.version>3.5.1</spark.version>
+        <spark.version>3.5.5</spark.version>
         <scala.binary.version>2.12</scala.binary.version>
         <spring-boot.version>3.2.5</spring-boot.version>
         <spring-kafka.version>3.1.2</spring-kafka.version>
@@ -107,22 +107,19 @@
             </dependency>
             <dependency>
                 <groupId>org.apache.spark</groupId>
-                <artifactId>spark-streaming-kafka-0-10_${scala.binary.version}</artifactId>
+                <artifactId>spark-sql-kafka-0-10_${scala.binary.version}</artifactId>
                 <version>${spark.version}</version>
                 <exclusions>
-                    <exclusion>
-                        <groupId>com.yammer.metrics</groupId>
-                        <artifactId>metrics-core</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.apache.kafka</groupId>
-                        <artifactId>kafka-clients</artifactId> <!-- Provided by spring-kafka or defined separately -->
-                    </exclusion>
                     <exclusion>
                         <groupId>org.slf4j</groupId>
                         <artifactId>slf4j-log4j12</artifactId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.kafka</groupId>
+                <artifactId>kafka-clients</artifactId>
+                <version>3.4.1</version>
             </dependency>
 
             <!-- Databases -->
@@ -194,7 +191,7 @@
             <dependency>
                 <groupId>org.quicktheories</groupId>
                 <artifactId>quicktheories</artifactId>
-                <version>0.28</version>
+                <version>0.26</version>
                 <scope>test</scope>
             </dependency>
         </dependencies>

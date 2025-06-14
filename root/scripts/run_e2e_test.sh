@@ -109,28 +109,34 @@ if ! docker ps | grep -q "alertmanager"; then
 fi
 echo "✅ Monitoring stack is running."
 
-# STEP 4: Submit Spark job
+# STEP 4: Prepare Kafka (topic & sample data)
+echo "📻 Creating topic 'ad-events' if it does not exist..."
+docker exec kafka \
+  /opt/bitnami/kafka/bin/kafka-topics.sh --create --if-not-exists \
+  --bootstrap-server kafka:9093 --replication-factor 1 --partitions 1 \
+  --topic ad-events
+
+# Launch Python producer in background
+echo "🐍 Starting Python producer to stream live data..."
+# Ensure Python dependencies are installed
+pip3 uninstall -y --quiet kafka kafka-python > /dev/null 2>&1 || true
+pip3 install --quiet --upgrade pip wheel six kafka-python==2.0.2 > /dev/null 2>&1 || true
+python3 ../scripts/ad_events_producer.py --broker localhost:9092 --file ../data/CriteoSearchData &
+PRODUCER_PID=$!
+
+# STEP 5: Submit Spark job
 echo "🔁 Submitting Spark job to master..."
 docker exec spark-master /opt/bitnami/spark/bin/spark-submit \
-  --class com.tabularasa.bi.spark.AdEventSparkStreamer \
+  --class com.tabularasa.bi.q1_realtime_stream_processing.spark.AdEventSparkStreamer \
   --master spark://spark-master:7077 \
   --deploy-mode client \
   --conf "spark.driver.extraJavaOptions=-Duser.home=/tmp" \
   --conf "spark.executor.extraJavaOptions=-Duser.home=/tmp" \
-  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,org.postgresql:postgresql:42.7.3 \
+  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.5,org.postgresql:postgresql:42.7.3 \
   /opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar \
   "kafka:9093" "ad-events" "jdbc:postgresql://postgres:5432/airflow" "airflow" "airflow"
 
 # Give Spark some time to process
-echo "⏳ Waiting for Spark to process data..."
-sleep 45
-
-echo "📤 Producing sample data to Kafka..."
-docker exec kafka \
-kafka-console-producer \
-  --broker-list kafka:9093 \
-  --topic ad-events < ../q1_realtime_stream_processing/data/sample_ad_events.jsonl
-
 echo "⏳ Waiting for Spark processing (60 seconds)..."
 sleep 60
 
@@ -139,6 +145,10 @@ docker exec postgres psql -U airflow -d airflow -c \
 "SELECT campaign_id, SUM(event_count) as total_events FROM aggregated_campaign_stats GROUP BY campaign_id;"
 
 echo "🎉 E2E Test Complete!"
+
+# Stop Python producer
+echo "🛑 Stopping Python producer..."
+kill $PRODUCER_PID || true
 
 echo "🧹 Cleaning up test environment..."
 pushd ../docker > /dev/null
