@@ -33,7 +33,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "tabularasa_prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -111,7 +111,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "tabularasa_prometheus"
           },
           "expr": "jvm_memory_used_bytes{application=\"tabularasa-bi-core\"}",
           "refId": "A"
@@ -119,7 +119,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "tabularasa_prometheus"
           },
           "expr": "jvm_memory_max_bytes{application=\"tabularasa-bi-core\"}",
           "hide": false,
@@ -132,7 +132,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "tabularasa_prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -209,7 +209,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "tabularasa_prometheus"
           },
           "expr": "rate(jvm_gc_pause_seconds_sum{application=\"tabularasa-bi-core\"}[1m])",
           "refId": "A"
@@ -221,7 +221,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "tabularasa_prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -298,7 +298,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "tabularasa_prometheus"
           },
           "expr": "jvm_threads_live_threads{application=\"tabularasa-bi-core\"}",
           "refId": "A"
@@ -310,7 +310,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "tabularasa_prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -387,7 +387,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "tabularasa_prometheus"
           },
           "expr": "rate(http_server_requests_seconds_count{application=\"tabularasa-bi-core\"}[1m])",
           "refId": "A"

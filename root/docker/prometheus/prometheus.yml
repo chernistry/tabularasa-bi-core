@@ -35,22 +35,22 @@ scrape_configs:
           application: 'tabularasa-bi-core'
 
 # Scrape configuration for Kafka (if JMX is enabled)
-  - job_name: 'kafka'
-    static_configs:
-      - targets: ['kafka:9092']
-        labels:
-          service: 'kafka-broker'
+#  - job_name: 'kafka'
+#    static_configs:
+#      - targets: ['kafka:9092']
+#        labels:
+#          service: 'kafka-broker'
 
 # Scrape configuration for Spark Master
-  - job_name: 'spark_master'
-    static_configs:
-      - targets: ['spark-master:8080']
-        labels:
-          service: 'spark-master'
+#  - job_name: 'spark_master'
+#    static_configs:
+#      - targets: ['spark-master:8080']
+#        labels:
+#          service: 'spark-master'
 
 # Scrape configuration for Spark Worker
-  - job_name: 'spark_worker'
-    static_configs:
-      - targets: ['spark-worker:8080']
-        labels:
-          service: 'spark-worker' 
+#  - job_name: 'spark_worker'
+#    static_configs:
+#      - targets: ['spark-worker:8080']
+#        labels:
+#          service: 'spark-worker' 

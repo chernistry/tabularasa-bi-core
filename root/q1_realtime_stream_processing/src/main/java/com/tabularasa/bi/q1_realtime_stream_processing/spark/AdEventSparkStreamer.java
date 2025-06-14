@@ -63,7 +63,7 @@ public class AdEventSparkStreamer {
         Dataset<Row> kafkaDF = spark
                 .readStream()
                 .format("kafka")
-                .option("kafka.bootstrap.servers", kafkaBootstrapServers)
+                .option("kafka.bootstrap.servers", "kafka:9093")
                 .option("subscribe", adEventsTopic)
                 .option("failOnDataLoss", "false")
                 .load();

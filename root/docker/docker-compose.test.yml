@@ -43,8 +43,10 @@ services:
       - KAFKA_BROKER_ID=1
       - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
       - ALLOW_PLAINTEXT_Listener=yes
-      - KAFKA_CFG_LISTENERS=PLAINTEXT://0.0.0.0:9092
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_CFG_LISTENERS=INTERNAL://0.0.0.0:9093,EXTERNAL://0.0.0.0:9092
+      - KAFKA_CFG_ADVERTISED_LISTENERS=INTERNAL://kafka:9093,EXTERNAL://localhost:9092
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=INTERNAL
       - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
       - KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=1
     volumes:
@@ -79,6 +81,7 @@ services:
       - "7077:7077"
     environment:
       - SPARK_MODE=master
+      - HOME=/tmp
       - SPARK_RPC_AUTHENTICATION_ENABLED=no
       - SPARK_RPC_ENCRYPTION_ENABLED=no
       - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
@@ -101,6 +104,7 @@ services:
       - SPARK_MASTER_URL=spark://spark-master:7077
       - SPARK_WORKER_MEMORY=1G
       - SPARK_WORKER_CORES=1
+      - HOME=/tmp
       - SPARK_RPC_AUTHENTICATION_ENABLED=no
       - SPARK_RPC_ENCRYPTION_ENABLED=no
       - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
@@ -121,6 +125,7 @@ services:
     ports:
       - "9090:9090"
     volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -157,8 +162,8 @@ services:
       - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
-      - ${PROJECT_ROOT}/root/docker/grafana/provisioning/:/etc/grafana/provisioning/
-      - ${PROJECT_ROOT}/root/docker/grafana/dashboards:/etc/grafana/dashboards
+      - ./grafana/provisioning/:/etc/grafana/provisioning/
+      - ./grafana/dashboards:/etc/grafana/dashboards
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin

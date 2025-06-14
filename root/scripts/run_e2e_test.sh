@@ -109,34 +109,13 @@ if ! docker ps | grep -q "alertmanager"; then
 fi
 echo "✅ Monitoring stack is running."
 
-# Copy JAR directly into containers since volume mounting isn't working
-echo "📥 Copying JAR directly into Spark containers..."
-docker cp "$JAR_SRC" spark-master:/opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar
-docker cp "$JAR_SRC" spark-worker:/opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar
-
-# Verify JAR file exists on master and worker
-echo "🔍 Verifying JAR file exists on Spark containers..."
-docker exec spark-master ls -la /opt/spark_apps/
-docker exec spark-worker ls -la /opt/spark_apps/
-
 # Submit Spark job
 echo "🔁 Submitting Spark job to master..."
-
-# First verify that the JAR file exists and is readable
-echo "Verifying JAR file in container:"
-docker exec spark-master ls -la /opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar
-
-# Bypass spark-submit and run directly with java to avoid Ivy issues
-echo "Running Spark application using direct Java command..."
-docker exec -e SPARK_LOCAL_IP=spark-master spark-master \
-  java -cp "/opt/spark/jars/*:/opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar" \
-  -Dspark.master=local[*] \
-  -Dspring.kafka.bootstrap-servers=kafka:9092 \
-  -Dspring.kafka.consumer.bootstrap-servers=kafka:9092 \
-  -Dspring.kafka.consumer.auto-offset-reset=earliest \
-  -Dspring.kafka.producer.bootstrap-servers=kafka:9092 \
-  -Dspring.profiles.active=simple \
-  com.tabularasa.bi.q1_realtime_stream_processing.Q1RealtimeStreamProcessingApplication
+docker exec spark-master \
+spark-submit \
+  --class com.tabularasa.bi.Q1RealtimeStreamProcessing \
+  --master spark://spark-master:7077 \
+  /opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar
 
 echo "📤 Producing sample data to Kafka..."
 docker exec kafka \
