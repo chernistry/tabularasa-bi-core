@@ -47,9 +47,6 @@ echo "---"
 echo "🚀 Starting End-to-End test..."
 
 echo "🛠️ Preparing environment..."
-# Create a local data directory for Grafana and ensure it's writable
-# This is the most reliable way to handle permissions on macOS/Windows
-mkdir -p ../docker/grafana_data && chmod -R 777 ../docker/grafana_data
 
 # Build Spark application
 echo "📦 Building Spark application..."
@@ -81,6 +78,11 @@ popd >/dev/null
 
 echo "⏳ Waiting for services to initialize..."
 sleep 20
+
+# Ensure the JAR is present inside Spark containers (bind mounts can occasionally misbehave on some hosts).
+echo "📤 Copying application JAR into Spark containers..."
+docker cp "$JAR_DEST" spark-master:/opt/spark_apps/
+docker cp "$JAR_DEST" spark-worker:/opt/spark_apps/ || true
 
 # Prepare PostgreSQL table
 echo "🗄️ Waiting for PostgreSQL to be ready..."

@@ -88,8 +88,8 @@ services:
       - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
       - SPARK_SSL_ENABLED=no
     volumes:
-      - ${PROJECT_ROOT}/root/docker/spark_apps:/opt/spark_apps
-      - ${PROJECT_ROOT}/root/docker/spark_data:/opt/spark_data
+      - ./spark_apps:/opt/spark_apps
+      - ./spark_data:/opt/spark_data
     networks:
       - bi_network
 
@@ -112,8 +112,8 @@ services:
       - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
       - SPARK_SSL_ENABLED=no
     volumes:
-      - ${PROJECT_ROOT}/root/docker/spark_apps:/opt/spark_apps
-      - ${PROJECT_ROOT}/root/docker/spark_data:/opt/spark_data
+      - ./spark_apps:/opt/spark_apps
+      - ./spark_data:/opt/spark_data
     networks:
       - bi_network
 
@@ -157,9 +157,8 @@ services:
     container_name: grafana
     ports:
       - "3000:3000"
-    user: "472"
     volumes:
-      - ./grafana_data:/var/lib/grafana
+      - grafana_data_vol:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
     environment:
       - GF_SECURITY_ADMIN_USER=admin
@@ -167,7 +166,6 @@ services:
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
       - GF_SECURITY_DISABLE_INITIAL_ADMIN_PASSWORD_CHANGE=true
-    command: sh -c "chown -R grafana:grafana /var/lib/grafana && /run.sh"
     restart: always
     networks:
       - bi_network
@@ -215,4 +213,5 @@ volumes:
   zookeeper_data:
   kafka_data:
   prometheus_data:
-  alertmanager_data: 
+  alertmanager_data:
+  grafana_data_vol: 
