@@ -109,6 +109,15 @@ if ! docker ps | grep -q "alertmanager"; then
 fi
 echo "✅ Monitoring stack is running."
 
+# STEP 3: Prepare PostgreSQL table (if not exists)
+echo "🗄️ Waiting for PostgreSQL to be ready..."
+until docker exec postgres pg_isready -U airflow -d airflow > /dev/null 2>&1; do
+  printf '.'
+  sleep 2
+done
+echo " Postgres is ready. Creating aggregated_campaign_stats table if absent..."
+docker exec -i postgres psql -U airflow -d airflow < ../q1_realtime_stream_processing/ddl/postgres_aggregated_campaign_stats.sql
+
 # STEP 4: Prepare Kafka (topic & sample data)
 echo "📻 Creating topic 'ad-events' if it does not exist..."
 docker exec kafka \
@@ -132,7 +141,7 @@ docker exec spark-master /opt/bitnami/spark/bin/spark-submit \
   --deploy-mode client \
   --conf "spark.driver.extraJavaOptions=-Duser.home=/tmp" \
   --conf "spark.executor.extraJavaOptions=-Duser.home=/tmp" \
-  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.5,org.postgresql:postgresql:42.7.3 \
+  --packages org.postgresql:postgresql:42.7.3 \
   /opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar \
   "kafka:9093" "ad-events" "jdbc:postgresql://postgres:5432/airflow" "airflow" "airflow"
 

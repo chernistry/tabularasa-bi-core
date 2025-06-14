@@ -308,6 +308,32 @@ For unit and integration tests, you can still use the standard Maven command fro
 mvn test
 ```
 
+To check events in db :
+
+docker exec -it postgres psql -U airflow -d airflow \
+     -c "SELECT campaign_id,
+                event_type,
+                window_start_time,
+                event_count,
+                total_bid_amount
+         FROM   aggregated_campaign_stats
+         ORDER  BY window_start_time DESC
+         LIMIT 20;"
+           campaign_id            | event_type |  window_start_time  | event_count | total_bid_amount 
+----------------------------------+------------+---------------------+-------------+------------------
+ 6DF5AA11F5DA11B295A1DB86EDE37F6C | click      | 2025-06-14 12:17:00 |           2 |           0.0000
+ 5C224520AC3481B4694D0A925D5082C8 | conversion | 2025-06-14 12:17:00 |           1 |          21.2946
+ 5F92AEBF530C8EF5113535B5295BD5DA | click      | 2025-06-14 12:17:00 |           1 |           0.0000
+ 29D6149BD41A394E113C123A5D1DCCDD | conversion | 2025-06-14 12:17:00 |           1 |          49.9200
+ CDC41501068D43EDF8F4C079EEC05B08 | conversion | 2025-06-14 12:17:00 |          10 |         522.6117
+ F6F0D11BE155EBF43AC7DA04B35AA0C1 | click      | 2025-06-14 12:17:00 |          11 |           0.0000
+ 9E3901BB737CB418DD223793D81E13BB | click      | 2025-06-14 12:17:00 |           2 |           0.0000
+ 9171F3CE1B04422F520ADE88EC9AB0C6 | conversion | 2025-06-14 12:17:00 |           1 |          35.9800
+ 430E4E15AA2CD4D3D2AD7C6FC9B6A534 | conversion | 2025-06-14 12:17:00 |           1 |         775.7664
+12:17:00 |           2 |           0.0000
+ 9B753B5AA1E7E31E0F80620AD61AC495 | click      | 2025-06-14 12:17:00 |           5 |           0.0000
+
+
 ---
 
 ## 📊 Project Status & Roadmap

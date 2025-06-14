@@ -128,6 +128,8 @@ services:
       - "9090:9090"
     volumes:
       - prometheus_data:/prometheus
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert.rules.yml:/etc/prometheus/alert.rules.yml:ro
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -164,12 +166,35 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning/:/etc/grafana/provisioning/
-      - ./grafana/dashboards:/etc/grafana/dashboards
+      - ./grafana/provisioning/dashboards/jvm_dashboard.json:/etc/grafana/dashboards/jvm_dashboard.json
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/dashboards/jvm_dashboard.json
     restart: always
+    networks:
+      - bi_network
+
+  # --► Spring Boot REST API & Simple Processor (exposes JVM metrics)
+  bi-app:
+    image: openjdk:17-jdk-slim
+    container_name: bi-app
+    depends_on:
+      - kafka
+      - tabularasa_postgres_db
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_PROFILES_ACTIVE: simple
+      SPRING_DATASOURCE_URL: jdbc:postgresql://tabularasa_postgres_db:5432/airflow
+      SPRING_DATASOURCE_USERNAME: airflow
+      SPRING_DATASOURCE_PASSWORD: airflow
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9093
+    volumes:
+      - ${PROJECT_ROOT}/root/q1_realtime_stream_processing/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar:/app/app.jar:ro
+    command: ["java","-jar","/app/app.jar"]
     networks:
       - bi_network
 
