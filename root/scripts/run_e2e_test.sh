@@ -109,18 +109,26 @@ if ! docker ps | grep -q "alertmanager"; then
 fi
 echo "✅ Monitoring stack is running."
 
-# Submit Spark job
+# STEP 4: Submit Spark job
 echo "🔁 Submitting Spark job to master..."
-docker exec spark-master \
-spark-submit \
-  --class com.tabularasa.bi.Q1RealtimeStreamProcessing \
+docker exec spark-master /opt/bitnami/spark/bin/spark-submit \
+  --class com.tabularasa.bi.spark.AdEventSparkStreamer \
   --master spark://spark-master:7077 \
-  /opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar
+  --deploy-mode client \
+  --conf "spark.driver.extraJavaOptions=-Duser.home=/tmp" \
+  --conf "spark.executor.extraJavaOptions=-Duser.home=/tmp" \
+  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,org.postgresql:postgresql:42.7.3 \
+  /opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar \
+  "kafka:9093" "ad-events" "jdbc:postgresql://postgres:5432/airflow" "airflow" "airflow"
+
+# Give Spark some time to process
+echo "⏳ Waiting for Spark to process data..."
+sleep 45
 
 echo "📤 Producing sample data to Kafka..."
 docker exec kafka \
 kafka-console-producer \
-  --broker-list kafka:9092 \
+  --broker-list kafka:9093 \
   --topic ad-events < ../q1_realtime_stream_processing/data/sample_ad_events.jsonl
 
 echo "⏳ Waiting for Spark processing (60 seconds)..."
