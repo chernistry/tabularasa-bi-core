@@ -1,10 +1,10 @@
-# Hypothetical Senior BI Data Engineer Assignment
+# Hypothetical Data Engineering Challenge
 
-**Subject**: Senior BI Data Engineer - Home Assignment
+**Subject**: Data Engineering – Technical Assessment
 
 Greetings,
 
-Thank you for your interest in the Senior BI Data Engineer position. The next step in the process is a home assignment. The purpose of this test is to evaluate technical abilities in several aspects of data engineering and backend development. It will also provide common ground for discussion in the technical interview that will follow completion of the test.
+Thank you for taking the time to tackle this challenge. Its purpose is to evaluate core data-engineering and backend skills and to serve as common ground for the technical conversation that follows.
 
 **General Notes:**
 
@@ -77,82 +77,50 @@ Additionally, for these top campaigns, include their total `spend_usd` and total
 
 **Question 3: Java Code Refactoring & Optimization**
 
-**Background:** Maintaining high-quality, efficient code is essential for systems.
+**Background:** Maintaining high-quality, efficient code is essential for large-scale systems.
 
 **Task:**
-A provided Java class (`DataProcessor.java`) has several coding inefficiencies, potential memory issues, and design flaws. Review the code, identify these issues, and refactor it to improve its correctness, efficiency, readability, and adherence to Java best practices.
+The provided Java class (`DataProcessor.java`) contains performance and design issues. Refactor it to improve correctness, efficiency, readability and adherence to modern Java best practices.
 
 **Sample Code (Provided for Context):**
 ```java
 // Simulates processing records and finding duplicates
 public class DataProcessor {
-    private List<String> processedRecords = new ArrayList<String>();
-    private Map<String, Integer> recordCounts = new HashMap<String, Integer>();
+    private List<String> processedRecords = new ArrayList<>();
+    private Map<String, Integer> recordCounts = new HashMap<>();
 
-    // Processes a batch of records. A record is considered a duplicate
-    // if its "key" has been seen before.
-    // Returns a list of keys that were duplicates in this batch.
     public List<String> processBatch(List<Map<String, String>> batch) {
-        List<String> duplicatesInBatch = new ArrayList<String>();
-        for (int i = 0; i < batch.size(); i++) { // Inefficient loop
-            Map<String, String> record = batch.get(i);
-            String key = record.get("id") + ":" + record.get("type"); // Inefficient string concatenation
-
-            // Check for duplicates
-            for (String processed : processedRecords) { // Very inefficient check
-                if (processed.equals(key)) {
-                    duplicatesInBatch.add(key);
-                    break;
-                }
+        List<String> duplicatesInBatch = new ArrayList<>();
+        for (Map<String, String> record : batch) {
+            String key = record.get("id") + ':' + record.get("type");
+            if (!processedRecords.add(key)) {
+                duplicatesInBatch.add(key);
             }
-
-            if (!duplicatesInBatch.contains(key)) { // Redundant check if already added
-                 processedRecords.add(key); // Potential for very large list
-            }
-
-            // Update counts
-            if (recordCounts.get(key) == null) {
-                recordCounts.put(key, new Integer(1)); // Autoboxing, new Integer() is deprecated
-            } else {
-                Integer count = recordCounts.get(key);
-                recordCounts.put(key, new Integer(count.intValue() + 1));
-            }
+            recordCounts.merge(key, 1, Integer::sum);
         }
         return duplicatesInBatch;
     }
-
-    // Additional methods omitted for brevity
 }
 ```
 
 **Deliverables:**
-- The refactored `DataProcessor.java` class.
-- A brief explanation of the issues identified and the changes made to address them. Focus on performance, memory usage, correctness, and design principles.
+- Refactored `DataProcessor.java`.
+- Short rationale of changes (performance, memory, design).
 
 ---
 
 **Question 4: Data Ingestion API Design & Client**
 
-**Background:** BI systems often need to ingest data from various external and internal APIs.
+**Background:** External systems push event data into the platform; the interface must be robust and idempotent.
 
 **Task:**
-1. **Design a Simple Data Ingestion API:**
-   Conceptually design a REST API endpoint that would allow external systems to push event data to a BI platform. Consider the following:
-   - **Endpoint:** e.g., `POST /v1/bi-events`
-   - **Request Payload:** Define a JSON structure for a batch of events. Each event should contain at least a `timestamp`, an `event_name`, and a flexible `attributes` field (e.g., a JSON object for event-specific details).
-   - **Response:** What would a successful (e.g., `202 Accepted`) and error response (e.g., `400 Bad Request`, `500 Internal Server Error`) look like?
-   - **Key Considerations:** Think about idempotency (how to handle retries of the same batch), authentication (briefly mention, no need to implement), and basic validation.
-
-2. **Implement a Java API Client:**
-   Write a simple Java client that can send a batch of mock events (matching the JSON structure designed) to a *mocked* version of this API endpoint.
-   - **Note:** Server-side implementation of the API is not required.
-   - The client should construct a batch of 2-3 sample events and attempt to "send" them. Simulate the HTTP call (e.g., by printing the request that *would* be sent, or by using a library like OkHttp/Apache HttpClient to send to a non-existent or mock server URL like `http://localhost:12345/mock-api/v1/bi-events`).
-   - The client should demonstrate how it would handle a successful response and a potential error response from the (mocked) API.
+1. **Design** a REST endpoint (e.g., `POST /v1/bi-events`) accepting a batch of events (`timestamp`, `event_name`, flexible `attributes` JSON). Define success (`202 Accepted`) and error responses, describe idempotency, basic auth, and validation considerations.
+2. **Implement** a Java client that assembles 2-3 mock events and submits them to a mocked endpoint (e.g., `http://localhost:12345/mock-api/v1/bi-events`) showing handling of success and error responses.
 
 **Deliverables:**
-- A brief document or section in the README describing the API design (endpoint, request/response structure, considerations for idempotency, auth, validation).
-- The Java source code for the API client.
-- An explanation of how the client constructs the payload and handles potential API responses.
+- API design summary (can live in README).
+- Java client source code.
+- Explanation of payload construction and error handling.
 
 ---
 

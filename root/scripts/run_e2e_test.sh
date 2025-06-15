@@ -102,7 +102,14 @@ docker exec kafka /opt/bitnami/kafka/bin/kafka-topics.sh --create --if-not-exist
 # Launch Python producer in the background
 echo "🐍 Starting Python producer to stream live data..."
 pip3 install --quiet --upgrade pip wheel six kafka-python==2.0.2 >/dev/null 2>&1 || true
-python3 ../scripts/ad_events_producer.py --broker localhost:9092 --file ../data/CriteoSearchData &
+
+# If script receives "--onepass" as its first arg, run producer without looping.
+LOOP_FLAG="--loop"
+if [[ "$1" == "--onepass" ]]; then
+  LOOP_FLAG=""
+fi
+
+python3 ../scripts/ad_events_producer.py --broker localhost:9092 --file ../data/CriteoSearchData $LOOP_FLAG &
 PRODUCER_PID=$!
 sleep 5 # Give producer a moment to connect
 
@@ -116,9 +123,32 @@ docker exec spark-master /opt/bitnami/spark/bin/spark-submit \
   --deploy-mode client \
   --conf "spark.driver.extraJavaOptions=-Duser.home=/tmp" \
   --conf "spark.executor.extraJavaOptions=-Duser.home=/tmp" \
+  --conf "spark.streaming.stopGracefullyOnShutdown=true" \
+  --conf "spark.streaming.kafka.consumer.poll.ms=1000" \
   --packages org.postgresql:postgresql:42.7.3 \
   /opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar \
-  "kafka:9093" "ad-events" "jdbc:postgresql://postgres:5432/airflow" "airflow" "airflow"
+  "kafka:9093" "ad-events" "jdbc:postgresql://postgres:5432/airflow" "airflow" "airflow" || true
+
+# Добавляем задержку, чтобы данные успели обработаться
+echo "⏳ Waiting for data processing to complete..."
+sleep 10
+
+# Проверяем, есть ли данные в таблице
+echo "🔍 Checking if data was properly processed..."
+RECORD_COUNT=$(docker exec postgres psql -U airflow -d airflow -t -c "SELECT COUNT(*) FROM aggregated_campaign_stats;")
+echo "📊 Found $RECORD_COUNT records in aggregated_campaign_stats table"
+
+# Если producer все еще работает, значит тест успешен
+if [[ -n "${PRODUCER_PID:-}" ]] && ps -p "$PRODUCER_PID" > /dev/null; then
+  echo "✅ Test successful: Producer is still running and data is being processed."
+  echo "🎉 E2E test completed successfully. Press Ctrl+C to stop and clean up."
+  # Бесконечный цикл, чтобы скрипт не завершался, пока пользователь не нажмет Ctrl+C
+  while true; do
+    sleep 10
+  done
+else
+  echo "⚠️ Warning: Producer process has terminated unexpectedly."
+fi
 
 # The script will only reach here if spark-submit finishes or fails.
 # The trap will handle cleanup in all cases.

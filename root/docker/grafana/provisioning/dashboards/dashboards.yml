@@ -4,7 +4,7 @@
 apiVersion: 1
 
 providers:
-  - name: 'TabulaRasa BI Core'
+  - name: 'TabulaRasa Metrics'
     orgId: 1
     folder: 'TabulaRasa'
     type: file

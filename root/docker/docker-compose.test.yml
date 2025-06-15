@@ -130,6 +130,9 @@ services:
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
     restart: always
     networks:
       - bi_network
@@ -181,12 +184,12 @@ services:
       - "8083:8083"
     environment:
       SPRING_PROFILES_ACTIVE: simple
-      SPRING_DATASOURCE_URL: jdbc:postgresql://tabularasa_postgres_db:5432/airflow
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/airflow
       SPRING_DATASOURCE_USERNAME: airflow
       SPRING_DATASOURCE_PASSWORD: airflow
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9093
     volumes:
-      - ${PROJECT_ROOT}/root/q1_realtime_stream_processing/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar:/app/app.jar:ro
+      - ../q1_realtime_stream_processing/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT-exec.jar:/app/app.jar:ro
     command: ["java","-jar","/app/app.jar"]
     networks:
       - bi_network

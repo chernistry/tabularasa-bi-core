@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BI Pipeline Health & Data Trust</title>
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.31.1.min.js"></script>
     <link rel="stylesheet" href="../shared/main.css">
     <script src="../shared/plot-theme.js"></script>
 </head>
@@ -14,7 +14,6 @@
         <nav>
             <a href="../ceo_executive_pulse/index.html">Executive Pulse</a>
             <a href="../advertiser_campaign_performance/index.html">Advertiser Performance</a>
-            <a href="../publisher_health_yield_optimization/index.html">Publisher Yield</a>
             <a href="./index.html" class="active">BI Pipeline Health</a>
         </nav>
     </header>
@@ -171,6 +170,19 @@
                 'marker.size': [sizes]
             });
         }
+
+        fetch('/api/pipeline_health')
+            .then(async response => {
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return response.json();
+            })
+            .then(data => {
+                // ... rest of the existing code ...
+            })
+            .catch(error => {
+                console.error('Error fetching pipeline health:', error);
+                document.querySelectorAll('#kpi-freshness,#kpi-etl-success,#kpi-quality').forEach(el => el.textContent = 'N/A');
+            });
     </script>
 </body>
 </html> 

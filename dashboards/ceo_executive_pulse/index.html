@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CEO & Executive Pulse</title>
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.31.1.min.js"></script>
     <link rel="stylesheet" href="../shared/main.css">
     <script src="../shared/plot-theme.js"></script>
 </head>
@@ -14,109 +14,104 @@
         <nav>
             <a href="./index.html" class="active">Executive Pulse</a>
             <a href="../advertiser_campaign_performance/index.html">Advertiser Performance</a>
-            <a href="../publisher_health_yield_optimization/index.html">Publisher Yield</a>
             <a href="../bi_pipeline_health_data_trust/index.html">BI Pipeline Health</a>
         </nav>
     </header>
 
     <div class="dashboard-container">
-        <h1 class="dashboard-title">CEO & Executive Pulse</h1>
+        <h1 class="dashboard-title">Executive Pulse</h1>
         <p class="dashboard-subtitle">
-            <strong>Narrative for C-Level:</strong> A high-level overview of the business's core vital signs. We are growing faster than the market, and here are the key drivers and strategic focus areas.
+            <strong>Narrative for C-Level:</strong> A high-level overview of the business's core vital signs, powered by the real-time data pipeline.
         </p>
         
         <div class="kpi-grid">
             <div class="card kpi-card">
-                <div class="kpi-label">Total Revenue vs. Forecast</div>
-                <div class="kpi-value">$82.5M <span class="unit">/ $80M</span></div>
-                <div class="kpi-change positive">+3.1% Ahead</div>
+                <div class="kpi-label">Total Impressions</div>
+                <div id="kpi-impressions" class="kpi-value">Loading...</div>
             </div>
             <div class="card kpi-card">
-                <div class="kpi-label">New Bookings (YoY Growth)</div>
-                <div class="kpi-value">+18.2<span class="unit">%</span></div>
-                <div class="kpi-change positive">Trending Up</div>
+                <div class="kpi-label">Total Clicks</div>
+                <div id="kpi-clicks" class="kpi-value">Loading...</div>
             </div>
             <div class="card kpi-card">
-                <div class="kpi-label">Advertiser ROI Index</div>
-                <div class="kpi-value">1.21<span class="unit">x</span></div>
-                <div class="kpi-change negative">-2.5% vs. Target</div>
+                <div class="kpi-label">Click-Through Rate (CTR)</div>
+                <div id="kpi-ctr" class="kpi-value">Loading...</div>
             </div>
             <div class="card kpi-card">
-                <div class="kpi-label">Avg. Publisher RPM</div>
-                <div class="kpi-value">$7.52</div>
-                <div class="kpi-change positive">+5.1% vs. Prev. Qtr</div>
+                <div class="kpi-label">Total Ad Spend</div>
+                <div id="kpi-spend" class="kpi-value">Loading...</div>
             </div>
         </div>
 
-        <div class="dashboard-grid main-side-layout" style="margin-top: 24px;">
-            <div class="card">
-                <div class="card-header">
-                    <h2 class="card-title">"Wow" Feature: Global Advertiser ROI Growth</h2>
-                    <span class="info-icon" onclick="showModal('map-modal')">ℹ️</span>
-                </div>
-                <p style="text-align:center; font-style: italic;">Interactive map showing regions where ROI growth is ahead or behind our strategic goals.</p>
-                <div id="world-map-chart" class="chart-container" style="min-height: 450px;"></div>
+        <div class="card" style="margin-top: 24px;">
+            <div class="card-header">
+                <h2 class="card-title">Advertiser ROI Trend</h2>
+                 <span class="info-icon" onclick="showModal('roi-modal')">ℹ️</span>
             </div>
-            <div class="card">
-                <div class="card-header">
-                    <h2 class="card-title">Top 5 Publishers by Revenue</h2>
-                    <span class="info-icon" onclick="showModal('publisher-modal')">ℹ️</span>
-                </div>
-                <div id="top-publishers-chart" class="chart-container" style="min-height: 450px;"></div>
-            </div>
+            <div id="roi-trend-chart" class="chart-container" style="min-height: 450px;"></div>
         </div>
     </div>
+     <!-- Modals -->
+    <div id="roi-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('roi-modal')">&times;</span><h3>Advertiser ROI Trend</h3><p>This chart shows the daily Return on Investment, calculated as `(Conversion Revenue / Impression Spend)`. It's a key measure of the platform's overall efficiency in generating value for advertisers.</p></div></div>
 
-    <!-- Modals -->
-    <div id="map-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('map-modal')">&times;</span><h3>Global Advertiser ROI Growth</h3><p>This map visualizes the year-over-year growth of the Advertiser ROI index by country. Green indicates growth above target (5%), while red indicates regions that require strategic attention.</p></div></div>
-    <div id="publisher-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('publisher-modal')">&times;</span><h3>Top 5 Publishers by Revenue Share</h3><p>This chart shows the contribution of our top five publisher partners to the total revenue for the current quarter. It helps identify key partnerships and concentration risk.</p></div></div>
 
     <script>
-        // --- "Wow" Feature: World Map ---
-        const mapLayout = { 
-            ...plotTheme, 
-            title: { ...plotTheme.title, text: 'YoY Advertiser ROI Growth (%)' },
-            geo: {
-                scope: 'world',
-                projection: { type: 'natural earth' },
-                showland: true,
-                landcolor: 'rgba(234, 234, 242, 1)',
-                subunitcolor: 'rgba(185, 185, 208, 1)',
-                bgcolor: 'rgba(255, 255, 255, 0)'
-            },
-            paper_bgcolor: 'rgba(255, 255, 255, 0)',
-            plot_bgcolor: 'rgba(255, 255, 255, 0)'
-        };
+        document.addEventListener('DOMContentLoaded', function() {
+            // Fetch KPIs (handle 204/503 gracefully)
+            fetch('/api/kpis')
+                .then(async response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    if (response.status === 204) {
+                        return null; // no data yet
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data) {
+                        ['impressions','clicks','ctr','spend'].forEach(id => document.getElementById(`kpi-${id}`).textContent = 'No data');
+                        return;
+                    }
+                    document.getElementById('kpi-impressions').textContent = data.impressions.toLocaleString();
+                    document.getElementById('kpi-clicks').textContent = data.clicks.toLocaleString();
+                    document.getElementById('kpi-ctr').innerHTML = `${data.ctr.toFixed(2)}<span class="unit">%<\/span>`;
+                    document.getElementById('kpi-spend').textContent = `$${(data.spend_usd / 1_000_000).toFixed(2)}M`;
+                })
+                .catch(error => {
+                    console.error('Error fetching KPIs:', error);
+                    ['impressions','clicks','ctr','spend'].forEach(id => document.getElementById(`kpi-${id}`).textContent = 'Error');
+                });
 
-        Plotly.newPlot('world-map-chart', [{
-            type: 'choropleth',
-            locations: ['USA', 'DEU', 'GBR', 'BRA', 'AUS', 'JPN', 'IND', 'CAN', 'FRA', 'RUS'],
-            z: [5.2, 4.5, 6.8, -1.2, 7.1, 2.5, -0.5, 3.0, 5.5, -2.0], // YoY Growth %
-            text: ['USA', 'Germany', 'UK', 'Brazil', 'Australia', 'Japan', 'India', 'Canada', 'France', 'Russia'],
-            colorscale: [
-                [0, 'rgb(214, 39, 40)'],
-                [0.5, 'rgb(255, 193, 7)'],
-                [1, 'rgb(44, 160, 44)']
-            ],
-            colorbar: { title: 'Growth %' }
-        }], mapLayout, { responsive: true });
-
-        // --- Top Publishers Chart ---
-        const publisherLayout = {
-            ...plotTheme,
-            title: { ...plotTheme.title, text: 'Quarterly Revenue Share' },
-            xaxis: { title: 'Revenue (in M USD)'},
-            yaxis: { autorange: 'reversed' } // To show top publisher at the top
-        };
-
-        Plotly.newPlot('top-publishers-chart', [{
-            x: [15.2, 12.8, 10.1, 8.9, 6.5],
-            y: ['Publisher Alpha', 'News Network Inc.', 'Global Media Co.', 'Tech Today', 'Lifestyle Magazine'],
-            type: 'bar',
-            orientation: 'h',
-            marker: { color: plotTheme.colorway }
-        }], publisherLayout, { responsive: true });
+            // Fetch ROI Trend
+            fetch('/api/roi_trend')
+                .then(async response => {
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    return response.json();
+                })
+                .then(data => {
+                    const dates = data.map(d => d.window_start_time);
+                    const rois = data.map(d => d.roi);
+                    const trendLayout = {
+                        ...plotTheme,
+                        title: { ...plotTheme.title, text: 'Daily Return on Investment (ROI)' },
+                        xaxis: { title: 'Date' },
+                        yaxis: { title: 'ROI' }
+                    };
+                    Plotly.newPlot('roi-trend-chart', [{
+                        x: dates,
+                        y: rois,
+                        type: 'scatter',
+                        mode: 'lines+markers',
+                        fill: 'tozeroy',
+                        line: { color: plotTheme.colorway[0], width: 2 },
+                        marker: { size: 6 }
+                    }], trendLayout, { responsive: true });
+                })
+                .catch(error => {
+                    console.error('Error fetching ROI trend:', error);
+                });
+        });
     </script>
-
 </body>
 </html>
