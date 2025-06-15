@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CEO & Executive Pulse</title>
     <script src="https://cdn.plot.ly/plotly-2.31.1.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../shared/main.css">
     <script src="../shared/plot-theme.js"></script>
 </head>
@@ -24,7 +27,7 @@
             <strong>Narrative for C-Level:</strong> A high-level overview of the business's core vital signs, powered by the real-time data pipeline.
         </p>
         
-        <div class="kpi-grid">
+        <div class="kpi-grid grid-col-5">
             <div class="card kpi-card">
                 <div class="kpi-label">Total Impressions</div>
                 <div id="kpi-impressions" class="kpi-value">Loading...</div>
@@ -32,6 +35,10 @@
             <div class="card kpi-card">
                 <div class="kpi-label">Total Clicks</div>
                 <div id="kpi-clicks" class="kpi-value">Loading...</div>
+            </div>
+             <div class="card kpi-card">
+                <div class="kpi-label">Total Conversions</div>
+                <div id="kpi-conversions" class="kpi-value">Loading...</div>
             </div>
             <div class="card kpi-card">
                 <div class="kpi-label">Click-Through Rate (CTR)</div>
@@ -43,74 +50,106 @@
             </div>
         </div>
 
-        <div class="card" style="margin-top: 24px;">
-            <div class="card-header">
-                <h2 class="card-title">Advertiser ROI Trend</h2>
-                 <span class="info-icon" onclick="showModal('roi-modal')">ℹ️</span>
+        <div class="dashboard-grid main-side-layout" style="margin-top: 24px;">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Advertiser ROI Trend</h2>
+                    <span class="info-icon" onclick="showModal('roi-modal')">ℹ️</span>
+                </div>
+                <div id="roi-trend-chart" class="chart-container" style="min-height: 450px;"></div>
             </div>
-            <div id="roi-trend-chart" class="chart-container" style="min-height: 450px;"></div>
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">"Wow" Feature: Campaign Efficiency Matrix</h2>
+                    <span class="info-icon" onclick="showModal('matrix-modal')">ℹ️</span>
+                </div>
+                <div id="campaign-matrix-chart" class="chart-container" style="min-height: 450px;"></div>
+            </div>
         </div>
     </div>
      <!-- Modals -->
-    <div id="roi-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('roi-modal')">&times;</span><h3>Advertiser ROI Trend</h3><p>This chart shows the daily Return on Investment, calculated as `(Conversion Revenue / Impression Spend)`. It's a key measure of the platform's overall efficiency in generating value for advertisers.</p></div></div>
+    <div id="roi-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('roi-modal')">&times;</span><h3>Advertiser ROI Trend</h3><p>This chart shows the daily Return on Investment, a key measure of the platform's overall efficiency.</p></div></div>
+    <div id="matrix-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('matrix-modal')">&times;</span><h3>Campaign Efficiency Matrix</h3><p>A BCG-style matrix classifying campaigns:<br><b>Stars (Top-Right):</b> High spend, high ROI. Leaders.<br><b>Question Marks (Top-Left):</b> High spend, low ROI. Need optimization.<br><b>Cash Cows (Bottom-Right):</b> Low spend, high ROI. Profitable workhorses.<br><b>Pets (Bottom-Left):</b> Low spend, low ROI. Re-evaluate.</p></div></div>
 
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            // Fetch KPIs (handle 204/503 gracefully)
+            const safeDivide = (numerator, denominator) => (denominator ? numerator / denominator : 0);
+            const REVENUE_PER_CONVERSION = 50; // Same assumption as other dashboard
+
+            // Fetch KPIs
             fetch('/api/kpis')
-                .then(async response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}`);
-                    }
-                    if (response.status === 204) {
-                        return null; // no data yet
-                    }
-                    return response.json();
-                })
+                .then(r => r.ok ? r.json() : Promise.reject(r.status))
                 .then(data => {
-                    if (!data) {
-                        ['impressions','clicks','ctr','spend'].forEach(id => document.getElementById(`kpi-${id}`).textContent = 'No data');
-                        return;
-                    }
                     document.getElementById('kpi-impressions').textContent = data.impressions.toLocaleString();
                     document.getElementById('kpi-clicks').textContent = data.clicks.toLocaleString();
-                    document.getElementById('kpi-ctr').innerHTML = `${data.ctr.toFixed(2)}<span class="unit">%<\/span>`;
-                    document.getElementById('kpi-spend').textContent = `$${(data.spend_usd / 1_000_000).toFixed(2)}M`;
+                    document.getElementById('kpi-conversions').textContent = data.conversions.toLocaleString();
+                    document.getElementById('kpi-ctr').innerHTML = `${data.ctr.toFixed(2)}<span class="unit">%</span>`;
+                    document.getElementById('kpi-spend').textContent = `$${(data.spend_usd / 1000000).toFixed(2)}M`;
                 })
                 .catch(error => {
                     console.error('Error fetching KPIs:', error);
-                    ['impressions','clicks','ctr','spend'].forEach(id => document.getElementById(`kpi-${id}`).textContent = 'Error');
+                    ['impressions','clicks','conversions','ctr','spend'].forEach(id => document.getElementById(`kpi-${id}`).textContent = 'Error');
                 });
 
             // Fetch ROI Trend
             fetch('/api/roi_trend')
-                .then(async response => {
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    return response.json();
-                })
+                .then(r => r.ok ? r.json() : Promise.reject(r.status))
                 .then(data => {
-                    const dates = data.map(d => d.window_start_time);
-                    const rois = data.map(d => d.roi);
-                    const trendLayout = {
-                        ...plotTheme,
-                        title: { ...plotTheme.title, text: 'Daily Return on Investment (ROI)' },
-                        xaxis: { title: 'Date' },
-                        yaxis: { title: 'ROI' }
-                    };
                     Plotly.newPlot('roi-trend-chart', [{
-                        x: dates,
-                        y: rois,
-                        type: 'scatter',
-                        mode: 'lines+markers',
-                        fill: 'tozeroy',
+                        x: data.map(d => d.window_start_time),
+                        y: data.map(d => d.roi),
+                        type: 'scatter', mode: 'lines+markers', fill: 'tozeroy',
                         line: { color: plotTheme.colorway[0], width: 2 },
-                        marker: { size: 6 }
-                    }], trendLayout, { responsive: true });
+                    }], { ...plotTheme, title: { ...plotTheme.title, text: 'Daily Return on Investment (ROI)' } }, { responsive: true });
                 })
-                .catch(error => {
-                    console.error('Error fetching ROI trend:', error);
-                });
+                .catch(error => console.error('Error fetching ROI trend:', error));
+            
+            // Fetch Campaign Performance for Matrix
+            fetch('/api/campaign_performance')
+                .then(r => r.ok ? r.json() : Promise.reject(r.status))
+                .then(campaigns => {
+                    const matrixData = campaigns.map(c => ({
+                        spend: c.spend_usd,
+                        roi: safeDivide(c.conversions * REVENUE_PER_CONVERSION, c.spend_usd),
+                        name: `Camp. ${c.campaign_id}`
+                    })).filter(c => c.spend > 0 && c.roi > 0);
+
+                    if (matrixData.length === 0) {
+                        console.warn("No data for campaign matrix.");
+                        return; // Don't draw empty chart
+                    }
+
+                    const avgSpend = matrixData.reduce((s, c) => s + c.spend, 0) / matrixData.length;
+                    const avgRoi = matrixData.reduce((s, c) => s + c.roi, 0) / matrixData.length;
+
+                    const matrixLayout = {
+                        ...plotTheme,
+                        title: { ...plotTheme.title, text: 'Campaign Efficiency Matrix' },
+                        xaxis: { title: 'Return on Investment (ROI)', zeroline: false, tickformat: '.1f' },
+                        yaxis: { title: 'Ad Spend ($)', zeroline: false, tickprefix: '$' },
+                        hovermode: 'closest',
+                        shapes: [ // Quadrant lines
+                            {type: 'line', x0: avgRoi, y0: 0, x1: avgRoi, y1: Math.max(...matrixData.map(d=>d.spend)) * 1.1, line: {dash: 'dot', width: 2, color: 'var(--secondary-color)'}},
+                            {type: 'line', x0: 0, y0: avgSpend, x1: Math.max(...matrixData.map(d=>d.roi)) * 1.1, y1: avgSpend, line: {dash: 'dot', width: 2, color: 'var(--secondary-color)'}}
+                        ],
+                        annotations: [ // Quadrant labels
+                            { x: avgRoi/2, y: avgSpend/2, text: 'Pets', showarrow: false, font: {color: 'var(--secondary-color)'} }, 
+                            { x: avgRoi*1.5, y: avgSpend/2, text: 'Cash Cows', showarrow: false, font: {color: 'var(--secondary-color)'} },
+                            { x: avgRoi/2, y: avgSpend*1.5, text: 'Question Marks', showarrow: false, font: {color: 'var(--secondary-color)'} }, 
+                            { x: avgRoi*1.5, y: avgSpend*1.5, text: 'Stars', showarrow: false, font: {color: 'var(--secondary-color)'} }
+                        ]
+                    };
+
+                    Plotly.newPlot('campaign-matrix-chart', [{
+                        x: matrixData.map(d => d.roi),
+                        y: matrixData.map(d => d.spend),
+                        text: matrixData.map(d => d.name),
+                        mode: 'markers',
+                        marker: { size: 12, color: plotTheme.colorway[2] }
+                    }], matrixLayout, { responsive: true });
+                })
+                .catch(error => console.error('Error fetching campaign performance for matrix:', error));
         });
     </script>
 </body>

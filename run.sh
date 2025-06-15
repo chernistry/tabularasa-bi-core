@@ -47,6 +47,13 @@ case "$1" in
   dash)
     kill_processes  # ensure no stale uvicorn
     echo "[INFO] Launching FastAPI dashboard backend (http://localhost:8000)… (Ctrl+C to stop)"
+    
+    # Activate conda environment if it exists and is specified
+    if [ -n "$CONDA_EXE" ] && [ -n "$CONDA_PREFIX" ]; then
+      echo "[INFO] Activating conda environment: taboola"
+      source "$(dirname "$CONDA_EXE")/../bin/activate" taboola
+    fi
+
     cd "$ROOT_DIR/root/dashboard_backend"
     exec uvicorn main:app --reload
     ;;

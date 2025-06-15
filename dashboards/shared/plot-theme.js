@@ -1,8 +1,8 @@
 const plotTheme = {
     font: {
-        family: "'Segoe UI', 'Helvetica Neue', Arial, sans-serif",
+        family: "'Inter', 'Helvetica Neue', Arial, sans-serif",
         size: 12,
-        color: '#212529' // --text-color
+        color: '#172b4d' // --text-color from our new CSS
     },
     paper_bgcolor: 'transparent', // Transparent background
     plot_bgcolor: 'transparent', // Transparent background
@@ -17,33 +17,37 @@ const plotTheme = {
         font: {
             size: 18,
             weight: '600',
-            color: '#212529' // --text-color
+            color: '#172b4d'
         },
         x: 0.05,
         xanchor: 'left'
     },
     xaxis: {
-        gridcolor: '#dee2e6', // --border-color
-        linecolor: '#adb5bd',
+        gridcolor: '#dfe1e6', // --border-color
+        linecolor: '#c1c7d0',
         zeroline: false,
         tickfont: {
-            color: '#6c757d' // --secondary-color
+            color: '#5e6c84' // --secondary-color
         }
     },
     yaxis: {
-        gridcolor: '#dee2e6', // --border-color
-        linecolor: '#adb5bd',
+        gridcolor: '#dfe1e6', // --border-color
+        linecolor: '#c1c7d0',
         zeroline: false,
         tickfont: {
-            color: '#6c757d' // --secondary-color
+            color: '#5e6c84' // --secondary-color
         }
     },
     legend: {
-        bgcolor: 'rgba(255, 255, 255, 0.7)',
-        bordercolor: '#dee2e6', // --border-color
-        borderwidth: 1
+        bgcolor: 'rgba(255, 255, 255, 0.85)',
+        bordercolor: '#dfe1e6',
+        borderwidth: 1,
+        font: {
+            color: '#172b4d'
+        }
     },
-    colorway: ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+    // A modern, high-contrast colorway
+    colorway: ['#0052cc', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
 };
 
 // --- Shared Interaction Functions ---

@@ -6,6 +6,9 @@
     <title>Advertiser Campaign Performance</title>
     <script src="https://cdn.plot.ly/plotly-2.31.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/wordcloud@1.2.2/src/wordcloud2.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../shared/main.css">
     <script src="../shared/plot-theme.js"></script>
 </head>
@@ -28,27 +31,29 @@
         <div class="kpi-grid">
             <div class="card kpi-card">
                 <div class="kpi-label">Average Cost Per Acquisition (CPA)</div>
-                <div class="kpi-value">$12.50</div>
-                <div class="kpi-change negative">-5.2% vs. Target (Higher)</div>
+                <div id="kpi-cpa" class="kpi-value">Loading...</div>
             </div>
             <div class="card kpi-card">
                 <div class="kpi-label">Average Return On Ad Spend (ROAS)</div>
-                <div class="kpi-value">4.2<span class="unit">x</span></div>
-                <div class="kpi-change positive">+10% vs. Target</div>
+                <div id="kpi-roas" class="kpi-value">Loading...<span class="unit">x</span></div>
+            </div>
+            <div class="card kpi-card">
+                <div class="kpi-label">Overall Conversion Rate</div>
+                <div id="kpi-cr" class="kpi-value">Loading...<span class="unit">%</span></div>
             </div>
         </div>
 
         <div class="dashboard-grid main-side-layout" style="margin-top: 24px;">
             <div class="card">
                 <div class="card-header">
-                    <h2 class="card-title">Conversion Rate Funnel</h2>
-                    <span class="info-icon" onclick="showModal('funnel-modal')">ℹ️</span>
+                    <h2 class="card-title">"Wow" Feature: Campaign Efficiency Map</h2>
+                    <span class="info-icon" onclick="showModal('efficiency-modal')">ℹ️</span>
                 </div>
-                <div id="funnel-chart" class="chart-container" style="min-height: 450px;"></div>
+                <div id="efficiency-bubble-chart" class="chart-container" style="min-height: 450px;"></div>
             </div>
             <div class="card">
                 <div class="card-header">
-                    <h2 class="card-title">"Wow" Feature: Top Converting Keywords</h2>
+                    <h2 class="card-title">Top Converting Campaigns</h2>
                     <span class="info-icon" onclick="showModal('wordcloud-modal')">ℹ️</span>
                 </div>
                 <div class="chart-container" style="display: flex; align-items: center; justify-content: center;">
@@ -59,54 +64,170 @@
 
         <div class="card">
             <div class="card-header">
-                <h2 class="card-title">Audience Segment Performance (ROAS)</h2>
+                <h2 class="card-title">Campaign Performance (ROAS)</h2>
                 <span class="info-icon" onclick="showModal('segment-modal')">ℹ️</span>
             </div>
-            <div id="segment-performance-chart" class="chart-container"></div>
+            <div id="campaign-roas-chart" class="chart-container"></div>
+        </div>
+        
+        <div class="dashboard-grid grid-col-2" style="margin-top: 24px;">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">"Wow" Feature: Performance by Device Type</h2>
+                    <span class="info-icon" onclick="showModal('device-modal')">ℹ️</span>
+                </div>
+                <div id="device-performance-chart" class="chart-container" style="min-height: 400px;"></div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">"Wow" Feature: Revenue by Product Category</h2>
+                    <span class="info-icon" onclick="showModal('category-modal')">ℹ️</span>
+                </div>
+                <div id="category-revenue-chart" class="chart-container" style="min-height: 400px;"></div>
+            </div>
         </div>
     </div>
 
     <!-- Modals -->
-    <div id="funnel-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('funnel-modal')">&times;</span><h3>Conversion Rate Funnel</h3><p>This funnel shows the journey from initial ad impression to final conversion, highlighting drop-off rates at each stage.</p></div></div>
-    <div id="wordcloud-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('wordcloud-modal')">&times;</span><h3>Top Converting Keywords</h3><p>This word cloud visualizes the keywords from search campaigns that are driving the most conversions. The larger the word, the more conversions it generated.</p></div></div>
-    <div id="segment-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('segment-modal')">&times;</span><h3>Audience Segment Performance</h3><p>This chart compares the Return On Ad Spend (ROAS) across different audience segments, helping to identify the most profitable groups to target.</p></div></div>
+    <div id="efficiency-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('efficiency-modal')">&times;</span><h3>Campaign Efficiency Map</h3><p>This chart plots campaigns by their Click-Through Rate (CTR) vs. Cost Per Acquisition (CPA).<br><b>Top-Right:</b> High CTR, low CPA (Ideal Stars)<br><b>Bottom-Right:</b> Low CTR, low CPA (Efficient but Unseen)<br><b>Top-Left:</b> High CTR, high CPA (Popular but Expensive)<br><b>Bottom-Left:</b> Low CTR, high CPA (Inefficient).<br>Bubble size represents ad spend.</p></div></div>
+    <div id="wordcloud-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('wordcloud-modal')">&times;</span><h3>Top Converting Campaigns</h3><p>This word cloud visualizes the campaigns that are driving the most conversions. The larger the campaign ID, the more conversions it generated.</p></div></div>
+    <div id="segment-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('segment-modal')">&times;</span><h3>Campaign Performance (ROAS)</h3><p>This chart compares the Return On Ad Spend (ROAS) across different campaigns, helping to identify the most profitable ones. Assumes a fixed revenue per conversion for calculation.</p></div></div>
+    <div id="device-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('device-modal')">&times;</span><h3>Performance by Device Type</h3><p>This chart shows total revenue and conversion rate for each device type, helping identify the most valuable user segments.</p></div></div>
+    <div id="category-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('category-modal')">&times;</span><h3>Revenue by Product Category</h3><p>This treemap visualizes revenue contribution from different product categories. The larger the area, the higher the revenue, making it easy to spot top-performing categories.</p></div></div>
 
     <script>
-        // --- Funnel Chart ---
-        const funnelLayout = {
-            ...plotTheme,
-            title: { ...plotTheme.title, text: 'From Impression to Purchase' }
-        };
-        Plotly.newPlot('funnel-chart', [{
-            type: 'funnel',
-            y: ['Impressions', 'Clicks', 'Add to Cart', 'Purchase'],
-            x: [100000, 15000, 3000, 750],
-            textinfo: "value+percent initial",
-            marker: { color: plotTheme.colorway }
-        }], funnelLayout, { responsive: true });
+        document.addEventListener('DOMContentLoaded', () => {
+            const safeDivide = (numerator, denominator) => (denominator ? numerator / denominator : 0);
+            // We assume a fixed revenue per conversion for ROAS calculation, as real revenue is not in the data.
+            const REVENUE_PER_CONVERSION = 50; 
 
-        // --- Audience Segment Chart ---
-        const segmentLayout = {
-            ...plotTheme,
-            title: { ...plotTheme.title, text: 'ROAS by Audience Segment' },
-            xaxis: { title: 'Audience Segment' },
-            yaxis: { title: 'ROAS (x)' }
-        };
-        Plotly.newPlot('segment-performance-chart', [{
-            x: ['Tech Enthusiasts', 'Gamers', 'Parents', 'Finance Professionals', 'Students'],
-            y: [5.5, 6.2, 3.1, 4.8, 2.5],
-            type: 'bar',
-            marker: { color: plotTheme.colorway[1] }
-        }], segmentLayout, { responsive: true });
+            // Fetch campaign performance for all charts
+            fetch('/api/campaign_performance')
+                .then(res => {
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    return res.json();
+                })
+                .then(campaigns => {
+                    if (!campaigns || campaigns.length === 0) {
+                        document.getElementById('kpi-cpa').textContent = 'N/A';
+                        document.getElementById('kpi-roas').textContent = 'N/A';
+                        document.getElementById('kpi-cr').textContent = 'N/A';
+                        return;
+                    }
 
-        // --- Word Cloud ---
-        const list = [
-            ['real-time analytics', 55], ['content discovery', 48], ['native advertising', 45],
-            ['ad campaign optimization', 35], ['user engagement', 32], ['brand safety', 28],
-            ['supply chain visibility', 25], ['b2b marketing', 22], ['programmatic ads', 20],
-            ['lead generation', 18], ['saas solutions', 15], ['ecommerce growth', 12]
-        ];
-        WordCloud(document.getElementById('wordcloud-canvas'), { list: list, weightFactor: 8, fontFamily: 'Segoe UI' });
+                    // --- Calculate and Display KPIs ---
+                    const totalSpend = campaigns.reduce((sum, c) => sum + c.spend_usd, 0);
+                    const totalConversions = campaigns.reduce((sum, c) => sum + c.conversions, 0);
+                    const totalClicks = campaigns.reduce((sum, c) => sum + c.clicks, 0);
+                    
+                    const avgCpa = safeDivide(totalSpend, totalConversions);
+                    document.getElementById('kpi-cpa').textContent = `$${avgCpa.toFixed(2)}`;
+
+                    const totalRevenue = campaigns.reduce((sum, c) => sum + (c.conversions * REVENUE_PER_CONVERSION), 0); // Simplified for now
+                    const avgRoas = safeDivide(totalRevenue, totalSpend);
+                    document.getElementById('kpi-roas').innerHTML = `${avgRoas.toFixed(2)}<span class="unit">x</span>`;
+                    
+                    const overallCR = safeDivide(totalConversions, totalClicks);
+                    document.getElementById('kpi-cr').innerHTML = `${(overallCR * 100).toFixed(2)}<span class="unit">%</span>`;
+
+                    // --- Campaign ROAS Bar Chart ---
+                    const sortedByRoas = campaigns
+                        .map(c => ({...c, roas: safeDivide(c.conversions * REVENUE_PER_CONVERSION, c.spend_usd)}))
+                        .sort((a, b) => b.roas - a.roas)
+                        .slice(0, 15);
+
+                    Plotly.newPlot('campaign-roas-chart', [{
+                        x: sortedByRoas.map(c => c.roas),
+                        y: sortedByRoas.map(c => `Campaign ${c.campaign_id}`),
+                        type: 'bar',
+                        orientation: 'h',
+                        marker: { color: plotTheme.colorway[1] }
+                    }], { ...plotTheme, yaxis: { autorange: 'reversed' }, xaxis: {title: 'ROAS (x)'}}, { responsive: true });
+
+                    // --- Word Cloud ---
+                    const wordCloudList = campaigns.map(c => [`Camp.${c.campaign_id}`, c.conversions]).filter(c => c[1] > 0);
+                    if (wordCloudList.length > 0) {
+                        WordCloud(document.getElementById('wordcloud-canvas'), { list: wordCloudList, weightFactor: 8, fontFamily: 'Segoe UI' });
+                    }
+                    
+                    // --- Efficiency Bubble Chart ("Wow" effect) ---
+                    const efficiencyData = campaigns.map(c => ({
+                        cpa: safeDivide(c.spend_usd, c.conversions),
+                        ctr: c.ctr,
+                        spend: c.spend_usd,
+                        id: c.campaign_id
+                    })).filter(c => c.cpa > 0 && c.ctr > 0); // Only show campaigns with conversions
+
+                    const bubbleLayout = {
+                        ...plotTheme,
+                        title: { ...plotTheme.title, text: 'CTR vs. CPA by Campaign' },
+                        xaxis: { title: 'Cost Per Acquisition (CPA) in $' },
+                        yaxis: { title: 'Click-Through Rate (CTR) in %' },
+                        hovermode: 'closest'
+                    };
+                    
+                    Plotly.newPlot('efficiency-bubble-chart', [{
+                        x: efficiencyData.map(d => d.cpa),
+                        y: efficiencyData.map(d => d.ctr),
+                        text: efficiencyData.map(d => `Campaign ${d.id}<br>Spend: $${d.spend.toFixed(0)}`),
+                        mode: 'markers',
+                        marker: {
+                            size: efficiencyData.map(d => Math.sqrt(d.spend) / 2), // Scale bubble size
+                            color: plotTheme.colorway[3],
+                            sizemode: 'diameter',
+                            sizemin: 5
+                        }
+                    }], bubbleLayout, { responsive: true });
+
+                })
+                .catch(error => {
+                    console.error('Error fetching campaign performance:', error);
+                    document.getElementById('kpi-cpa').textContent = 'Error';
+                    document.getElementById('kpi-roas').textContent = 'Error';
+                    document.getElementById('kpi-cr').textContent = 'Error';
+                });
+
+            // Fetch device performance
+            fetch('/api/performance/by_device')
+                .then(res => res.ok ? res.json() : Promise.reject(res.status))
+                .then(data => {
+                     Plotly.newPlot('device-performance-chart', [{
+                        x: data.map(d => d.device_type),
+                        y: data.map(d => d.total_revenue),
+                        name: 'Total Revenue',
+                        type: 'bar'
+                    }, {
+                        x: data.map(d => d.device_type),
+                        y: data.map(d => d.conversion_rate),
+                        name: 'Conversion Rate',
+                        type: 'scatter',
+                        yaxis: 'y2'
+                    }], { 
+                        ...plotTheme, 
+                        title: 'Revenue and CR by Device',
+                        yaxis: { title: 'Total Revenue ($)' },
+                        yaxis2: { title: 'Conversion Rate', overlaying: 'y', side: 'right' }
+                    }, { responsive: true });
+                })
+                .catch(error => console.error('Error fetching device performance:', error));
+            
+            // Fetch category revenue for Treemap
+            fetch('/api/performance/by_category')
+                .then(res => res.ok ? res.json() : Promise.reject(res.status))
+                .then(data => {
+                    Plotly.newPlot('category-revenue-chart', [{
+                        type: 'treemap',
+                        labels: data.map(d => `Category ${d.product_category_1}`),
+                        parents: data.map(() => "Categories"),
+                        values: data.map(d => d.total_revenue),
+                        textinfo: 'label+value+percent root'
+                    }], {
+                         ...plotTheme, 
+                         title: 'Revenue by Product Category'
+                    }, { responsive: true });
+                })
+                .catch(error => console.error('Error fetching category revenue:', error));
+        });
     </script>
 </body>
 </html> 

@@ -45,6 +45,23 @@ class PipelineHealth(BaseModel):
     etl_success_rate: float = Field(..., ge=0, le=100)
     data_quality_score: float = Field(..., ge=0, le=100)
 
+class CampaignPerformance(BaseModel):
+    campaign_id: str
+    impressions: int
+    clicks: int
+    conversions: int
+    spend_usd: float
+    ctr: float
+
+class PerformanceByDevice(BaseModel):
+    device_type: str
+    total_revenue: float
+    conversion_rate: float
+
+class RevenueByCategory(BaseModel):
+    product_category_1: str
+    total_revenue: float
+
 # --- FastAPI App ----------------------------------------------------------------------------------
 
 app = FastAPI(title="TabulaRasa Dashboard API", version="0.1.0")
@@ -71,45 +88,42 @@ async def index() -> RedirectResponse:  # pragma: no cover
 
 # --- SQL Loading Helper ---------------------------------------------------------------------------
 
-def load_sql_query(filename: str, query_name: str = None) -> text:
-    """Load SQL query from file and return as SQLAlchemy text object."""
+def load_sql_query(filename: str, query_name: str) -> text:
+    """Load a specific SQL query by its -- NAME: from a file."""
     sql_dir = BASE_DIR / "sql" / "dashboard"
     sql_file = sql_dir / filename
-    
+
     if not sql_file.exists():
-        # Попробуем fallback на старый путь
-        sql_file = BASE_DIR / "sql" / filename
-        if not sql_file.exists():
-            raise FileNotFoundError(f"SQL file not found: {sql_file}")
-    
+        raise FileNotFoundError(f"SQL file not found in {sql_dir} or its subdirectories: {filename}")
+
     sql_content = sql_file.read_text()
     
-    # If query_name is provided, extract just that query
-    if query_name:
-        # Simple parser for -- Query Name: format
-        queries = {}
-        current_query = None
-        current_lines = []
-        
-        for line in sql_content.split('\n'):
-            if line.strip().startswith('-- ') and ':' in line:
-                if current_query and current_lines:
-                    queries[current_query] = '\n'.join(current_lines).strip()
-                    current_lines = []
-                current_query = line.strip()[3:].split(':', 1)[0].strip()
-            elif current_query:
-                current_lines.append(line)
-        
-        if current_query and current_lines:
-            queries[current_query] = '\n'.join(current_lines).strip()
+    queries = {}
+    current_query_name = None
+    current_lines = []
+
+    for line in sql_content.split('\n'):
+        # Check for our specific delimiter
+        if line.strip().startswith('-- NAME:'):
+            # If we were already building a query, save it
+            if current_query_name and current_lines:
+                queries[current_query_name] = '\n'.join(current_lines).strip()
             
-        if query_name in queries:
-            return text(queries[query_name])
-        else:
-            # Fallback to using the entire file
-            return text(sql_content)
-    
-    return text(sql_content)
+            # Start a new query
+            current_query_name = line.split(':', 1)[1].strip()
+            current_lines = []
+        elif current_query_name:
+            # Add line to the current query being built
+            current_lines.append(line)
+            
+    # Save the last query in the file
+    if current_query_name and current_lines:
+        queries[current_query_name] = '\n'.join(current_lines).strip()
+
+    if query_name in queries:
+        return text(queries[query_name])
+    else:
+        raise ValueError(f"Query '{query_name}' not found in {filename}")
 
 # --- SQL Queries ----------------------------------------------------------------------------------
 
@@ -118,6 +132,9 @@ try:
     KPI_QUERY = load_sql_query("kpi_queries.sql", "KPI Query")
     ROI_TREND_QUERY = load_sql_query("kpi_queries.sql", "ROI Trend Query")
     FRESHNESS_QUERY = load_sql_query("kpi_queries.sql", "Freshness Query")
+    CAMPAIGN_PERFORMANCE_QUERY = load_sql_query("kpi_queries.sql", "Campaign Performance Query")
+    DEVICE_PERFORMANCE_QUERY = load_sql_query("kpi_queries.sql", "Performance by Device Type")
+    CATEGORY_REVENUE_QUERY = load_sql_query("kpi_queries.sql", "Revenue by Product Category")
 except FileNotFoundError:
     # Fallback to hardcoded queries
     KPI_QUERY = text(
@@ -142,6 +159,8 @@ except FileNotFoundError:
     )
     
     FRESHNESS_QUERY = text("SELECT MAX(window_start_time) as latest_ts FROM aggregated_campaign_stats;")
+    CAMPAIGN_PERFORMANCE_QUERY = text("SELECT * FROM aggregated_campaign_stats ORDER BY spend_usd DESC LIMIT 10;")
+    # Note: No fallback for new queries, they must exist in the SQL file
 
 # --- Endpoints ------------------------------------------------------------------------------------
 
@@ -176,6 +195,54 @@ async def read_roi_trend(session: AsyncSession = Depends(get_session)) -> List[R
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                             detail="ROI data unavailable — pipeline not started or table missing.")
     return [ROIDailyPoint(window_start_time=str(day), roi=round(roi or 0, 4)) for day, roi in rows]
+
+@app.get("/api/campaign_performance", response_model=List[CampaignPerformance])
+async def read_campaign_performance(session: AsyncSession = Depends(get_session)) -> List[CampaignPerformance]:
+    """Return performance metrics for top 10 campaigns by spend."""
+    try:
+        result = await session.execute(CAMPAIGN_PERFORMANCE_QUERY)
+        rows = result.all()
+    except (ProgrammingError, OperationalError):
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="Campaign data unavailable — pipeline not started or table missing.")
+    
+    return [CampaignPerformance(
+        campaign_id=row.campaign_id,
+        impressions=row.impressions or 0,
+        clicks=row.clicks or 0,
+        conversions=row.conversions or 0,
+        spend_usd=row.spend_usd or 0,
+        ctr=row.ctr or 0
+    ) for row in rows]
+
+@app.get("/api/performance/by_device", response_model=List[PerformanceByDevice])
+async def read_performance_by_device(session: AsyncSession = Depends(get_session)) -> List[PerformanceByDevice]:
+    """Return performance metrics aggregated by device type."""
+    try:
+        result = await session.execute(DEVICE_PERFORMANCE_QUERY)
+        rows = result.all()
+    except (ProgrammingError, OperationalError):
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="Device performance data unavailable.")
+    return [PerformanceByDevice(
+        device_type=row.device_type,
+        total_revenue=row.total_revenue or 0,
+        conversion_rate=row.conversion_rate or 0
+    ) for row in rows]
+
+@app.get("/api/performance/by_category", response_model=List[RevenueByCategory])
+async def read_revenue_by_category(session: AsyncSession = Depends(get_session)) -> List[RevenueByCategory]:
+    """Return revenue aggregated by product category."""
+    try:
+        result = await session.execute(CATEGORY_REVENUE_QUERY)
+        rows = result.all()
+    except (ProgrammingError, OperationalError):
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="Category revenue data unavailable.")
+    return [RevenueByCategory(
+        product_category_1=row.product_category_1,
+        total_revenue=row.total_revenue or 0
+    ) for row in rows]
 
 @app.get("/api/pipeline_health", response_model=PipelineHealth)
 async def read_pipeline_health(session: AsyncSession = Depends(get_session)) -> PipelineHealth:

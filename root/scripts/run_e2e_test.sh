@@ -16,6 +16,12 @@ cd "$(dirname "$0")"
 cleanup() {
   echo -e "\n\n🧹 Cleaning up test environment..."
 
+  if [[ -n "${SPARK_SUBMIT_PID:-}" ]] && ps -p "$SPARK_SUBMIT_PID" > /dev/null; then
+    echo "🔪 Terminating Spark submit (PID $SPARK_SUBMIT_PID)..."
+    kill "$SPARK_SUBMIT_PID" 2>/dev/null || true
+    wait "$SPARK_SUBMIT_PID" 2>/dev/null
+  fi
+
   # Kill Python producer if it's still running
   if [[ -n "${PRODUCER_PID:-}" ]] && ps -p "$PRODUCER_PID" > /dev/null; then
     echo "🔪 Terminating Python producer (PID $PRODUCER_PID)..."
@@ -104,9 +110,9 @@ echo "🐍 Starting Python producer to stream live data..."
 pip3 install --quiet --upgrade pip wheel six kafka-python==2.0.2 >/dev/null 2>&1 || true
 
 # If script receives "--onepass" as its first arg, run producer without looping.
-LOOP_FLAG="--loop"
-if [[ "$1" == "--onepass" ]]; then
-  LOOP_FLAG=""
+LOOP_FLAG=""
+if [[ "$1" != "--onepass" ]]; then
+  LOOP_FLAG="--loop"
 fi
 
 python3 ../scripts/ad_events_producer.py --broker localhost:9092 --file ../data/CriteoSearchData $LOOP_FLAG &
@@ -114,40 +120,50 @@ PRODUCER_PID=$!
 sleep 5 # Give producer a moment to connect
 
 # Submit Spark job
-echo "🔥 Submitting Spark job to master. Press Ctrl+C to stop."
+echo "🔥 Submitting Spark job to master in the background..."
 echo "------------------------------------------------------"
-# This command runs in the foreground and will block, keeping the script alive.
-docker exec spark-master /opt/bitnami/spark/bin/spark-submit \
-  --class com.tabularasa.bi.q1_realtime_stream_processing.spark.AdEventSparkStreamer \
-  --master spark://spark-master:7077 \
-  --deploy-mode client \
-  --conf "spark.driver.extraJavaOptions=-Duser.home=/tmp" \
-  --conf "spark.executor.extraJavaOptions=-Duser.home=/tmp" \
-  --conf "spark.streaming.stopGracefullyOnShutdown=true" \
-  --conf "spark.streaming.kafka.consumer.poll.ms=1000" \
-  --packages org.postgresql:postgresql:42.7.3 \
-  /opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar \
-  "kafka:9093" "ad-events" "jdbc:postgresql://postgres:5432/airflow" "airflow" "airflow" || true
+(
+  docker exec spark-master /opt/bitnami/spark/bin/spark-submit \
+    --class com.tabularasa.bi.q1_realtime_stream_processing.spark.AdEventSparkStreamer \
+    --master spark://spark-master:7077 \
+    --deploy-mode client \
+    --conf "spark.driver.extraJavaOptions=-Duser.home=/tmp" \
+    --conf "spark.executor.extraJavaOptions=-Duser.home=/tmp" \
+    --conf "spark.streaming.stopGracefullyOnShutdown=true" \
+    --conf "spark.streaming.kafka.consumer.poll.ms=1000" \
+    --packages org.postgresql:postgresql:42.7.3 \
+    /opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar \
+    "kafka:9093" "ad-events" "jdbc:postgresql://postgres:5432/airflow" "airflow" "airflow"
+) &
+SPARK_SUBMIT_PID=$!
 
-# Добавляем задержку, чтобы данные успели обработаться
-echo "⏳ Waiting for data processing to complete..."
-sleep 10
+# Let the pipeline run for a bit to process data
+echo "⏳ Waiting 60 seconds for the pipeline to process data..."
+sleep 60
 
-# Проверяем, есть ли данные в таблице
+# Check if processes are still running
+if ! ps -p "$PRODUCER_PID" > /dev/null; then
+  echo "❌ ERROR: Producer process has terminated prematurely."
+  exit 1
+fi
+if ! ps -p "$SPARK_SUBMIT_PID" > /dev/null; then
+  echo "❌ ERROR: Spark submit process has terminated prematurely."
+  exit 1
+fi
+
+# Check for data in the table
 echo "🔍 Checking if data was properly processed..."
-RECORD_COUNT=$(docker exec postgres psql -U airflow -d airflow -t -c "SELECT COUNT(*) FROM aggregated_campaign_stats;")
-echo "📊 Found $RECORD_COUNT records in aggregated_campaign_stats table"
+RECORD_COUNT=$(docker exec postgres psql -U airflow -d airflow -t -c "SELECT COUNT(*) FROM aggregated_campaign_stats;" | xargs)
+echo "📊 Found $RECORD_COUNT records in aggregated_campaign_stats table."
 
-# Если producer все еще работает, значит тест успешен
-if [[ -n "${PRODUCER_PID:-}" ]] && ps -p "$PRODUCER_PID" > /dev/null; then
-  echo "✅ Test successful: Producer is still running and data is being processed."
-  echo "🎉 E2E test completed successfully. Press Ctrl+C to stop and clean up."
-  # Бесконечный цикл, чтобы скрипт не завершался, пока пользователь не нажмет Ctrl+C
-  while true; do
-    sleep 10
-  done
+if [[ "$RECORD_COUNT" -gt 10 ]]; then
+  echo "✅ Test successful: Data is being processed and saved to PostgreSQL."
+  echo "🎉 E2E test passed. Press Ctrl+C to stop and clean up."
+  # Keep script running to allow for manual inspection.
+  wait $SPARK_SUBMIT_PID
 else
-  echo "⚠️ Warning: Producer process has terminated unexpectedly."
+  echo "❌ TEST FAILED: Not enough records found in the database."
+  exit 1
 fi
 
 # The script will only reach here if spark-submit finishes or fails.
