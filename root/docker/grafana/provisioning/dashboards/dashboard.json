@@ -1,4 +1,3 @@
-
 {
   "annotations": {
     "list": [
@@ -393,6 +392,63 @@
         }
       ],
       "title": "HTTP Request Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tabularasa_prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "showPoints": "never",
+            "stacking": { "mode": "none", "group": "A" }
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "id": 5,
+      "options": {
+        "legend": { "displayMode": "list", "showLegend": true, "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "expr": "rate(pg_stat_database_xact_commit_total{datname=\"airflow\"}[1m])",
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "tabularasa_prometheus" }
+        }
+      ],
+      "title": "PostgreSQL TPS (commits per sec)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "tabularasa_prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "lineInterpolation": "linear", "showPoints": "never", "stacking": { "mode": "none", "group": "A" } },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "id": 6,
+      "options": { "legend": { "displayMode": "list", "showLegend": true, "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "pg_stat_database_numbackends{datname=\"airflow\"}",
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "tabularasa_prometheus" }
+        }
+      ],
+      "title": "PostgreSQL Active Connections",
       "type": "timeseries"
     }
   ],
