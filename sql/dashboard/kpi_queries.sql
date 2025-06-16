@@ -16,15 +16,14 @@ FROM    aggregated_campaign_stats;
 
 -- NAME: ROI Trend Query
 -- Calculates daily Return on Investment (ROI) trend.
--- ROI is defined as (Revenue / Spend).
--- Revenue is derived from `sales_amount_euro`, defaulting to a fixed value per conversion if null.
+-- ROI = Revenue / Spend where Revenue = conversions * 50 EUR (fallback)
 SELECT
     DATE_TRUNC('day', window_start_time)::date AS day,
-    COALESCE(
-        SUM(sales_amount_euro) / NULLIF(SUM(total_bid_amount), 0),
-        -- Fallback to a simpler ROI calculation if sales_amount_euro is not available
-        (SUM(event_count) FILTER (WHERE event_type = 'conversion')) * 50.0 / NULLIF(SUM(total_bid_amount), 0)
-    ) AS roi
+    CASE
+        WHEN SUM(total_bid_amount) > 0
+        THEN (SUM(event_count) FILTER (WHERE event_type = 'conversion')) * 50.0 / SUM(total_bid_amount)
+        ELSE 0
+    END AS roi
 FROM
     aggregated_campaign_stats
 GROUP BY
