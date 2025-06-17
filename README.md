@@ -257,4 +257,4 @@ The project includes a pre-configured monitoring stack.
 
 ## License
 
-This project is for demonstration purposes only.
+This project is licensed under a custom non-commercial license. See the [LICENSE](LICENSE) file for details.
