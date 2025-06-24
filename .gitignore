@@ -1,6 +1,6 @@
 tabularasa-bi-core.iml
-.idea/misc.xml
-.idea/modules.xml
+.idea/*
+.idea
 # Created by https://www.toptal.com/developers/gitignore/api/java,maven
 # Edit at https://www.toptal.com/developers/gitignore?templates=java,maven
 
@@ -12,6 +12,7 @@ tabularasa-bi-core.iml
 *.log
 
 # BlueJ files
+
 *.ctxt
 
 # Mobile Tools for Java (J2ME)
@@ -74,3 +75,4 @@ run.md
 */misc.xml
 */modules.ml
 */vcs.xml
+docs/cheatsheet.md
