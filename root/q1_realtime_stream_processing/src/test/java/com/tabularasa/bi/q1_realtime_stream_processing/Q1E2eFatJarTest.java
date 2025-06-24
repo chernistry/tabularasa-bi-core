@@ -46,7 +46,7 @@ public class Q1E2eFatJarTest {
             .withNetworkAliases("postgres");
 
     @Container
-    private static KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.0.1"))
+    private static KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.5.0"))
             .withNetwork(network)
             .withNetworkAliases("kafka");
 
@@ -59,7 +59,7 @@ public class Q1E2eFatJarTest {
 
     @Container
     private static GenericContainer<?> sparkWorker = new GenericContainer<>(DockerImageName.parse("bitnami/spark:3.5"))
-            .withExposedPorts(8080)
+            .withExposedPorts(8081)
             .withEnv("SPARK_MODE", "worker")
             .withEnv("SPARK_MASTER_URL", "spark://spark-master:7077")
             .withNetwork(network)
@@ -116,7 +116,10 @@ public class Q1E2eFatJarTest {
                 // Consume streams to prevent blocking
                 new Thread(() -> {
                     try (BufferedReader reader = new BufferedReader(new InputStreamReader(stdout))) {
-                        while (reader.readLine() != null) {}
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            LOGGER.info("MVN_BUILD_STDOUT: {}", line);
+                        }
                     } catch (IOException e) {
                         LOGGER.error("Error reading stdout", e);
                     }
@@ -124,7 +127,10 @@ public class Q1E2eFatJarTest {
                 
                 new Thread(() -> {
                     try (BufferedReader reader = new BufferedReader(new InputStreamReader(stderr))) {
-                        while (reader.readLine() != null) {}
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            LOGGER.error("MVN_BUILD_STDERR: {}", line);
+                        }
                     } catch (IOException e) {
                         LOGGER.error("Error reading stderr", e);
                     }
@@ -157,8 +163,12 @@ public class Q1E2eFatJarTest {
         LOGGER.info("Submitting Spark job...");
         String sparkContainerId = sparkMaster.getContainerId();
 
-        String jarName = "q1_realtime_stream_processing-spark-job-0.0.1-SNAPSHOT.jar";
+        String jarName = "q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar";
         String jarPath = "target/" + jarName;
+
+        File jarFile = new File(jarPath);
+        assertTrue(jarFile.exists(), "Spark job JAR not found at: " + jarFile.getAbsolutePath());
+
         DockerClientFactory.instance().client().copyArchiveToContainerCmd(sparkContainerId)
                 .withHostResource(jarPath)
                 .withRemotePath("/opt/spark_apps/")
