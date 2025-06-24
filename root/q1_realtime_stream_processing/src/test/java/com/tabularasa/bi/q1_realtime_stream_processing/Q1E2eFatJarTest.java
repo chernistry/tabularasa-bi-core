@@ -14,6 +14,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.utility.MountableFile;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -26,6 +27,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.io.InputStream;
 import java.io.IOException;
+import java.util.Map;
+import java.util.Properties;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.clients.producer.ProducerRecord;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -166,13 +172,13 @@ public class Q1E2eFatJarTest {
         String jarName = "q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar";
         String jarPath = "target/" + jarName;
 
-        File jarFile = new File(jarPath);
-        assertTrue(jarFile.exists(), "Spark job JAR not found at: " + jarFile.getAbsolutePath());
-
-        DockerClientFactory.instance().client().copyArchiveToContainerCmd(sparkContainerId)
-                .withHostResource(jarPath)
-                .withRemotePath("/opt/spark_apps/")
-                .exec();
+        // Copy JAR using Testcontainers helper (more robust than low-level Docker copy)
+        try {
+            sparkMaster.copyFileToContainer(MountableFile.forHostPath(jarPath), "/opt/spark_apps/" + jarName);
+        } catch (Exception e) {
+            LOGGER.error("Failed to copy JAR to Spark container", e);
+            throw new RuntimeException("Failed to copy JAR to Spark container", e);
+        }
 
         String sparkSubmitCommand = String.format(
                 "spark-submit --class com.tabularasa.bi.q1_realtime_stream_processing.spark.AdEventSparkStreamer " +
@@ -202,15 +208,34 @@ public class Q1E2eFatJarTest {
         TimeUnit.SECONDS.sleep(20);
 
         LOGGER.info("Producing data to Kafka...");
+        // Ensure Kafka topic exists (manually execute command instead of using createTopic)
         String kafkaContainerId = kafka.getContainerId();
-        String sampleData = "{\\\"timestamp\\\":\\\"2024-05-15T10:00:15Z\\\",\\\"campaign_id\\\":\\\"cmp_1\\\",\\\"event_type\\\":\\\"impression\\\",\\\"user_id\\\":\\\"usr_a\\\",\\\"bid_amount_usd\\\":0.05}\\n" +
-                "{\\\"timestamp\\\":\\\"2024-05-15T10:00:25Z\\\",\\\"campaign_id\\\":\\\"cmp_1\\\",\\\"event_type\\\":\\\"impression\\\",\\\"user_id\\\":\\\"usr_b\\\",\\\"bid_amount_usd\\\":0.06}\\n" +
-                "{\\\"timestamp\\\":\\\"2024-05-15T10:00:45Z\\\",\\\"campaign_id\\\":\\\"cmp_1\\\",\\\"event_type\\\":\\\"click\\\",\\\"user_id\\\":\\\"usr_a\\\",\\\"bid_amount_usd\\\":0.10}";
-        String kafkaCommand = "echo -e '" + sampleData + "' | kafka-console-producer.sh --bootstrap-server kafka:9092 --topic ad-events";
-
-        ExecCreateCmdResponse kafkaExec = DockerClientFactory.instance().client().execCreateCmd(kafkaContainerId)
-                .withCmd("sh", "-c", kafkaCommand).exec();
-        DockerClientFactory.instance().client().execStartCmd(kafkaExec.getId()).exec(new ResultCallback.Adapter<>());
+        ExecCreateCmdResponse topicCreateExec = DockerClientFactory.instance().client().execCreateCmd(kafkaContainerId)
+                .withCmd("sh", "-c", "kafka-topics.sh --create --topic ad-events --partitions 1 --replication-factor 1 --bootstrap-server kafka:9092 --if-not-exists")
+                .exec();
+        DockerClientFactory.instance().client().execStartCmd(topicCreateExec.getId()).exec(new ResultCallback.Adapter<>());
+        
+        // Use KafkaContainer to get bootstrap servers address
+        Properties props = new Properties();
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());
+        props.put(ProducerConfig.CLIENT_ID_CONFIG, "test-producer");
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer");
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer");
+        
+        try (KafkaProducer<String, String> producer = new KafkaProducer<>(props)) {
+            String[] events = {
+                "{\"timestamp\":\"2024-05-15T10:00:15Z\",\"campaign_id\":\"cmp_1\",\"event_type\":\"impression\",\"user_id\":\"usr_a\",\"bid_amount_usd\":0.05}",
+                "{\"timestamp\":\"2024-05-15T10:00:25Z\",\"campaign_id\":\"cmp_1\",\"event_type\":\"impression\",\"user_id\":\"usr_b\",\"bid_amount_usd\":0.06}",
+                "{\"timestamp\":\"2024-05-15T10:00:45Z\",\"campaign_id\":\"cmp_1\",\"event_type\":\"click\",\"user_id\":\"usr_a\",\"bid_amount_usd\":0.10}"
+            };
+            
+            for (String event : events) {
+                LOGGER.info("Sending event to Kafka: {}", event);
+                producer.send(new ProducerRecord<>("ad-events", "key-" + System.currentTimeMillis(), event)).get();
+            }
+            producer.flush();
+            LOGGER.info("Data sent to Kafka");
+        }
 
         LOGGER.info("Data produced. Waiting 60 seconds for processing...");
         TimeUnit.SECONDS.sleep(60);
