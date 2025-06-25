@@ -7,25 +7,25 @@ from psycopg2.extras import RealDictCursor
 
 app = Flask(__name__)
 
-# Конфигурация подключения к PostgreSQL
+# PostgreSQL connection configuration
 DB_CONFIG = {
-    'dbname': 'airflow',
+    'dbname': 'tabularasadb',
     'user': 'tabulauser',
     'password': 'tabulapass',
     'host': 'localhost',
     'port': '5432'
 }
 
-# Функция для подключения к БД
+# Helper to obtain a database connection
 def get_db_connection():
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         return conn
     except Exception as e:
-        print(f"Ошибка подключения к PostgreSQL: {e}")
+        print(f"PostgreSQL connection error: {e}")
         return None
 
-# Функция для запроса данных с поддержкой fallback на моковые данные
+# Execute SQL query with optional empty fallback
 def execute_query(query, fallback_func=None):
     conn = get_db_connection()
     if conn:
@@ -37,26 +37,25 @@ def execute_query(query, fallback_func=None):
             conn.close()
             return result
         except Exception as e:
-            print(f"Ошибка запроса к БД: {e}")
+            print(f"Database query error: {e}")
     
-    # Fallback на моковые данные если БД недоступна
-    print("Используем fallback на моковые данные")
+    # WARNING: Database unavailable. Returning empty results instead of real metrics.
     if fallback_func:
         return fallback_func()
     return []
 
-# Статические файлы
+# Static file handler
 @app.route('/', defaults={'path': 'index.html'})
 @app.route('/<path:path>')
 def serve_static(path):
     if path == "" or path == "/":
         path = "index.html"
     
-    # Пробуем найти файл в корне проекта
+    # Try to find file in project root first
     if os.path.exists(path):
         return send_from_directory('.', path)
     
-    # Возможные директории для поиска файла
+    # Fallback directories to search for the file
     possible_dirs = ['.', 'dashboards', 'dashboards/shared', 
                     'dashboards/ceo_executive_pulse', 
                     'dashboards/advertiser_campaign_performance',
@@ -67,9 +66,9 @@ def serve_static(path):
         if os.path.exists(file_path):
             return send_from_directory(directory, os.path.basename(path))
     
-    return "Файл не найден", 404
+    return "File not found", 404
 
-# API эндпоинты с реальными данными из PostgreSQL
+# API endpoints backed by PostgreSQL metrics
 @app.route('/api/campaign_performance')
 def campaign_performance():
     query = """
@@ -78,7 +77,7 @@ def campaign_performance():
       SUM(CASE WHEN event_type = 'impression' THEN event_count ELSE 0 END) AS impressions,
       SUM(CASE WHEN event_type = 'click' THEN event_count ELSE 0 END) AS clicks,
       SUM(CASE WHEN event_type = 'conversion' THEN event_count ELSE 0 END) AS conversions,
-      SUM(total_spend_usd) AS spend_usd,
+      SUM(spend_usd) AS spend_usd,
       CASE WHEN SUM(CASE WHEN event_type = 'impression' THEN event_count ELSE 0 END) > 0
         THEN (SUM(CASE WHEN event_type = 'click' THEN event_count ELSE 0 END)::float / SUM(CASE WHEN event_type = 'impression' THEN event_count ELSE 0 END)) * 100
         ELSE 0 END AS ctr
@@ -88,20 +87,11 @@ def campaign_performance():
     LIMIT 15;
     """
     
-    def mock_campaigns():
-        campaigns = []
-        for i in range(1, 16):
-            campaigns.append({
-                'campaign_id': i,
-                'spend_usd': random.uniform(1000, 50000),
-                'impressions': random.randint(100000, 1000000),
-                'clicks': random.randint(5000, 50000),
-                'conversions': random.randint(50, 500),
-                'ctr': random.uniform(0.5, 5.0)
-            })
-        return campaigns
+    def empty_campaigns():
+        print("WARNING: Returning empty campaign data.")
+        return []
     
-    return jsonify(execute_query(query, mock_campaigns))
+    return jsonify(execute_query(query, empty_campaigns))
 
 @app.route('/api/performance/by_device')
 def performance_by_device():
@@ -117,24 +107,17 @@ def performance_by_device():
     ORDER BY total_revenue DESC;
     """
     
-    def mock_device_data():
-        devices = ['Mobile', 'Desktop', 'Tablet', 'Smart TV', 'Other']
-        device_data = []
-        for device in devices:
-            device_data.append({
-                'device_type': device,
-                'total_revenue': random.uniform(10000, 100000),
-                'conversion_rate': random.uniform(1.0, 8.0)
-            })
-        return device_data
+    def empty_device_data():
+        print("WARNING: Returning empty device breakdown.")
+        return []
     
-    return jsonify(execute_query(query, mock_device_data))
+    return jsonify(execute_query(query, empty_device_data))
 
 @app.route('/api/performance/by_category')
 def performance_by_category():
     query = """
     SELECT
-      COALESCE(product_category_1, 'Unknown') as product_category_1,
+      COALESCE(product_category_1, 0) as product_category_1,
       SUM(total_sales_amount_euro) as total_revenue
     FROM aggregated_campaign_stats
     GROUP BY product_category_1
@@ -142,16 +125,11 @@ def performance_by_category():
     LIMIT 7;
     """
     
-    def mock_categories():
-        categories = []
-        for i in range(1, 8):
-            categories.append({
-                'product_category_1': i,
-                'total_revenue': random.uniform(5000, 80000)
-            })
-        return categories
+    def empty_categories():
+        print("WARNING: Returning empty category breakdown.")
+        return []
     
-    return jsonify(execute_query(query, mock_categories))
+    return jsonify(execute_query(query, empty_categories))
 
 @app.route('/api/kpis')
 def kpis():
@@ -163,21 +141,22 @@ def kpis():
       CASE WHEN SUM(CASE WHEN event_type = 'impression' THEN event_count ELSE 0 END) > 0
         THEN (SUM(CASE WHEN event_type = 'click' THEN event_count ELSE 0 END)::float / SUM(CASE WHEN event_type = 'impression' THEN event_count ELSE 0 END)) * 100
         ELSE 0 END AS ctr,
-      SUM(total_spend_usd) AS spend_usd
+      SUM(spend_usd) AS spend_usd
     FROM aggregated_campaign_stats;
     """
     
-    def mock_kpis():
+    def empty_kpis():
+        print("WARNING: Returning empty KPI set.")
         return {
-            'impressions': random.randint(5000000, 10000000),
-            'clicks': random.randint(250000, 500000),
-            'conversions': random.randint(10000, 50000),
-            'ctr': random.uniform(1.5, 5.0),
-            'spend_usd': random.uniform(1000000, 5000000)
+            'impressions': 0,
+            'clicks': 0,
+            'conversions': 0,
+            'ctr': 0,
+            'spend_usd': 0
         }
     
-    result = execute_query(query, mock_kpis)
-    # Если результат запроса - список словарей, берем первый элемент
+    result = execute_query(query, empty_kpis)
+    # If the query result is a list of dictionaries, take the first element
     if isinstance(result, list) and result:
         return jsonify(result[0])
     return jsonify(result)
@@ -187,27 +166,18 @@ def roi_trend():
     query = """
     SELECT
       window_start_time,
-      SUM(total_sales_amount_euro) / NULLIF(SUM(total_spend_usd),0) AS roi
+      SUM(total_sales_amount_euro) / NULLIF(SUM(spend_usd),0) AS roi
     FROM aggregated_campaign_stats
     WHERE window_start_time > NOW() - INTERVAL '30 days'
     GROUP BY window_start_time
     ORDER BY window_start_time;
     """
     
-    def mock_roi_trend():
-        trend_data = []
-        start_date = datetime.now() - timedelta(days=30)
-        
-        for i in range(30):
-            current_date = start_date + timedelta(days=i)
-            trend_data.append({
-                'window_start_time': current_date.strftime('%Y-%m-%d'),
-                'roi': random.uniform(1.5, 4.5)
-            })
-        
-        return trend_data
+    def empty_roi_trend():
+        print("WARNING: Returning empty ROI trend.")
+        return []
     
-    return jsonify(execute_query(query, mock_roi_trend))
+    return jsonify(execute_query(query, empty_roi_trend))
 
 @app.route('/api/pipeline_health')
 def pipeline_health():
@@ -225,27 +195,11 @@ def pipeline_health():
     ORDER BY day
     """
     
-    def mock_pipeline_health():
-        health_data = []
-        start_date = datetime.now() - timedelta(days=30)
-        
-        for i in range(30):
-            current_date = start_date + timedelta(days=i)
-            # Создаем аномалию в середине месяца
-            is_anomaly = i == 15
-            
-            health_data.append({
-                'day': current_date.strftime('%Y-%m-%d'),
-                'avg_processing_time': random.uniform(100, 180) if not is_anomaly else random.uniform(400, 600),
-                'job_count': random.randint(950, 1050),
-                'success_rate': random.uniform(98, 100) if not is_anomaly else random.uniform(80, 90),
-                'data_freshness_hours': random.uniform(0.8, 1.2) if not is_anomaly else random.uniform(4, 6),
-                'quality_score': random.uniform(98, 100) if not is_anomaly else random.uniform(90, 95)
-            })
-        
-        return health_data
+    def empty_pipeline_health():
+        print("WARNING: Returning empty pipeline health data.")
+        return []
     
-    return jsonify(execute_query(query, mock_pipeline_health))
+    return jsonify(execute_query(query, empty_pipeline_health))
 
 @app.route('/api/performance/by_brand')
 def performance_by_brand():
@@ -259,17 +213,11 @@ def performance_by_brand():
     LIMIT 10;
     """
     
-    def mock_brand_data():
-        brands = ['Nike', 'Adidas', 'Puma', 'Apple', 'Samsung', 'Sony', 'Gucci', 'Prada', 'Other', 'Unknown']
-        brand_data = []
-        for brand in brands:
-            brand_data.append({
-                'product_brand': brand,
-                'total_revenue': random.uniform(20000, 150000)
-            })
-        return brand_data
+    def empty_brand_data():
+        print("WARNING: Returning empty brand breakdown.")
+        return []
     
-    return jsonify(execute_query(query, mock_brand_data))
+    return jsonify(execute_query(query, empty_brand_data))
 
 @app.route('/api/performance/by_age_group')
 def performance_by_age_group():
@@ -285,26 +233,19 @@ def performance_by_age_group():
     ORDER BY product_age_group;
     """
 
-    def mock_age_group_data():
-        age_groups = ['18-24', '25-34', '35-44', '45-54', '55+']
-        age_group_data = []
-        for age_group in age_groups:
-            age_group_data.append({
-                'product_age_group': age_group,
-                'total_revenue': random.uniform(50000, 200000),
-                'ctr': random.uniform(1.0, 5.0)
-            })
-        return age_group_data
+    def empty_age_group_data():
+        print("WARNING: Returning empty age-group breakdown.")
+        return []
 
-    return jsonify(execute_query(query, mock_age_group_data))
+    return jsonify(execute_query(query, empty_age_group_data))
 
 if __name__ == '__main__':
-    # Проверка подключения к БД при запуске
+    # Validate database connectivity on server start-up
     conn = get_db_connection()
     if conn:
-        print("Успешное подключение к PostgreSQL!")
+        print("Successfully connected to PostgreSQL.")
         conn.close()
     else:
-        print("ВНИМАНИЕ: Не удалось подключиться к PostgreSQL. Будут использованы моковые данные.")
+        print("WARNING: Unable to connect to PostgreSQL. Empty data will be served.")
     
     app.run(debug=True, port=8080) 

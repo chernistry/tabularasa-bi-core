@@ -22,7 +22,7 @@ from psycopg2.extras import execute_batch
 # Database connection configuration
 # --------------------------------------------------------------------------- #
 DB_CONFIG = {
-    "dbname": "airflow",
+    "dbname": "tabularasadb",
     "user": "tabulauser",
     "password": "tabulapass",
     "host": "localhost",
@@ -78,8 +78,14 @@ CREATE TABLE IF NOT EXISTS bi_pipeline_metrics (
 # Maintenance SQL
 # --------------------------------------------------------------------------- #
 TRUNCATE_TABLES = """
-TRUNCATE TABLE IF EXISTS aggregated_campaign_stats;
-TRUNCATE TABLE IF EXISTS bi_pipeline_metrics;
+TRUNCATE TABLE aggregated_campaign_stats;
+TRUNCATE TABLE bi_pipeline_metrics;
+"""
+
+# In a safer variant:
+DROP_TABLES_IF_EXISTS = """
+DROP TABLE IF EXISTS aggregated_campaign_stats;
+DROP TABLE IF EXISTS bi_pipeline_metrics;
 """
 
 # --------------------------------------------------------------------------- #
@@ -90,7 +96,7 @@ TRUNCATE TABLE IF EXISTS bi_pipeline_metrics;
 # generation should happen in this file.
 #
 def generate_campaign_data(start_date, days=30):
-    """Генерирует тестовые данные для кампаний за указанный период"""
+    """Generates test data for campaigns for the specified period"""
     data = []
     campaign_ids = list(range(1, 16))
     devices = ['Desktop', 'Mobile', 'Tablet', 'Smart TV', 'Other']
@@ -107,7 +113,7 @@ def generate_campaign_data(start_date, days=30):
             timestamp = current_date + timedelta(days=day, hours=hour)
             
             for campaign_id in campaign_ids:
-                # Генерируем один набор атрибутов на час кампании
+                # Generate one set of attributes per campaign hour
                 device = random.choice(devices)
                 country = random.choice(countries)
                 brand = random.choice(brands)
@@ -121,7 +127,7 @@ def generate_campaign_data(start_date, days=30):
                 clicks = int(base_impressions * ctr)
                 conversions = int(clicks * conv_rate)
 
-                # Для каждого типа события создаем свою запись
+                # For each event type, create its own record
                 for event_type in event_types:
                     count = 0
                     spend = 0.0
@@ -163,9 +169,9 @@ def generate_campaign_data(start_date, days=30):
     return data
 
 def generate_pipeline_metrics(start_date, days=30):
-# ... existing code ...
-        # Вставляем данные о кампаниях
-        print(f"Вставляем {len(campaign_data)} записей о кампаниях...")
+
+        # Insert campaign data
+        print(f"Inserting {len(campaign_data)} campaign records...")
         insert_campaign_sql = """
         INSERT INTO aggregated_campaign_stats 
         (campaign_id, event_type, window_start_time, device_type, country_code, 
@@ -177,8 +183,8 @@ def generate_pipeline_metrics(start_date, days=30):
         """
         execute_batch(cursor, insert_campaign_sql, campaign_data)
         
-        # Вставляем данные о метриках пайплайна
-# ... existing code ...
+        # Insert pipeline metrics data
+
 
 
 # --------------------------------------------------------------------------- #
@@ -198,9 +204,23 @@ def main() -> None:
         cursor.execute(CREATE_CAMPAIGN_STATS_TABLE)
         cursor.execute(CREATE_PIPELINE_METRICS_TABLE)
 
-        # Truncate existing data (comment out if you want to keep history)
-        print("Truncating any existing data …")
-        cursor.execute(TRUNCATE_TABLES)
+        # Truncate or recreate tables
+        print("Recreating tables for fresh data …")
+        try:
+            cursor.execute(DROP_TABLES_IF_EXISTS)
+            # Re-create tables after dropping
+            cursor.execute(CREATE_CAMPAIGN_STATS_TABLE)
+            cursor.execute(CREATE_PIPELINE_METRICS_TABLE)
+            print("Tables successfully recreated.")
+        except Exception as exc:
+            print(f"Warning: Could not drop/recreate tables: {exc}")
+            print("Trying to truncate instead...")
+            try:
+                cursor.execute(TRUNCATE_TABLES)
+                print("Tables successfully truncated.")
+            except Exception as trunc_exc:
+                print(f"Warning: Could not truncate tables: {trunc_exc}")
+                print("Tables will keep existing data.")
 
         # ---------------------------------------------------------------
         # NOTE: No mock data insertion here. Real data will be ingested

@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Timer;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,8 +17,6 @@ import org.springframework.stereotype.Component;
 public final class AdEventsProcessor implements Consumer<String> {
 
     private static final Logger log = LoggerFactory.getLogger(AdEventsProcessor.class);
-
-    private static final int SIMULATED_DELAY_MS = 100;
 
     /**
      * Jackson object mapper for JSON processing.
@@ -86,23 +83,29 @@ public final class AdEventsProcessor implements Consumer<String> {
     }
 
     private void processEvent(final JsonNode event) {
-        // Simulating event processing delay
         try {
-            // In a real application, this would contain the actual event processing logic
-            TimeUnit.MILLISECONDS.sleep((long) (Math.random() * SIMULATED_DELAY_MS));
-
-            // Example validation check that could throw an exception
+            // Actual event processing without artificial delays
+            // Validation of required fields
             if (!event.has("timestamp")) {
                 throw new IllegalArgumentException("Event is missing required 'timestamp' field");
             }
+            if (!event.has("campaign_id")) {
+                throw new IllegalArgumentException("Event is missing required 'campaign_id' field");
+            }
+            if (!event.has("event_type")) {
+                throw new IllegalArgumentException("Event is missing required 'event_type' field");
+            }
 
+            // Logging the event
             log.info("Processed event with campaign_id: {}, event_type: {}",
-                    event.path("campaign_id").asText("unknown"),
-                    event.path("event_type").asText("unknown"));
+                    event.path("campaign_id").asText(),
+                    event.path("event_type").asText());
 
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("Event processing was interrupted", e);
+            // Place real business logic for event processing here
+            // without simulations or random delays
+
+        } catch (Exception e) {
+            throw new RuntimeException("Error processing event", e);
         }
     }
 }

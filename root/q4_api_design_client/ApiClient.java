@@ -135,6 +135,11 @@ public class ApiClient {
     }
 
     /**
+     * FOR TESTING AND DEMONSTRATION PURPOSES ONLY.
+     * 
+     * This method must not be used in production code.
+     * For real data, use the sendEvents() method.
+     *
      * For demonstration purposes, this method mocks sending events without actually
      * making an HTTP request. It simulates both success and error scenarios.
      *

@@ -28,8 +28,13 @@ public class Q1RealtimeStreamProcessingApplication {
      */
     public static void main(final String[] args) {
         try {
-            // System.setProperty("hadoop.home.dir", "/"); // Moved to SparkConfig
-            // System.setProperty("java.security.manager", "allow"); // Moved to SparkConfig
+            // Set critical system properties for Hadoop/Spark
+            System.setProperty("hadoop.home.dir", "/tmp");
+            System.setProperty("java.security.manager", "allow");
+            System.setProperty("user.home", "/tmp");
+            System.setProperty("user.name", "root");
+            System.setProperty("HADOOP_USER_NAME", "root");
+            
             SpringApplication.run(Q1RealtimeStreamProcessingApplication.class, args);
         } catch (Exception e) {
             LOGGER.error("Critical error during application startup", e);

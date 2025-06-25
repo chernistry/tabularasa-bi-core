@@ -92,12 +92,12 @@ docker cp "$JAR_DEST" spark-worker:/opt/spark_apps/ || true
 
 # Prepare PostgreSQL table
 echo "🗄️ Waiting for PostgreSQL to be ready..."
-until docker exec postgres pg_isready -U tabulauser -d airflow >/dev/null 2>&1; do
+until docker exec postgres pg_isready -U tabulauser -d tabularasadb >/dev/null 2>&1; do
   printf '.'
   sleep 2
 done
 echo " Postgres is ready. Creating aggregated_campaign_stats table if absent..."
-docker exec -i postgres psql -U tabulauser -d airflow <../q1_realtime_stream_processing/ddl/postgres_aggregated_campaign_stats.sql
+docker exec -i postgres psql -U tabulauser -d tabularasadb <../q1_realtime_stream_processing/ddl/postgres_aggregated_campaign_stats.sql
 
 # Prepare Kafka topic
 echo "📻 Creating topic 'ad-events' if it does not exist..."
@@ -119,21 +119,32 @@ python3 ../scripts/ad_events_producer.py --broker localhost:9092 --file ../data/
 PRODUCER_PID=$!
 sleep 5 # Give producer a moment to connect
 
+# Fix Hadoop user name
+echo "🔧 Setting HADOOP_USER_NAME environment variable and fixing directories..."
+bash ../scripts/fix_hadoop_user.sh
+
+# Verify the fix was applied
+echo "🔍 Verifying Hadoop user settings..."
+docker exec spark-master bash -c "echo \$HADOOP_USER_NAME"
+docker exec spark-master bash -c "ls -la /tmp/.sparkStaging" || echo "Warning: .sparkStaging directory not found"
+
 # Submit Spark job
 echo "🔥 Submitting Spark job to master in the background..."
 echo "------------------------------------------------------"
 (
-  docker exec spark-master /opt/bitnami/spark/bin/spark-submit \
+  docker exec -e HADOOP_USER_NAME=root -e USER_HOME=/tmp -e HOME=/tmp spark-master /opt/bitnami/spark/bin/spark-submit \
     --class com.tabularasa.bi.q1_realtime_stream_processing.spark.AdEventSparkStreamer \
     --master spark://spark-master:7077 \
     --deploy-mode client \
-    --conf "spark.driver.extraJavaOptions=-Duser.home=/tmp" \
-    --conf "spark.executor.extraJavaOptions=-Duser.home=/tmp" \
+    --conf "spark.driver.extraJavaOptions=-Duser.home=/tmp -Djava.security.manager=allow" \
+    --conf "spark.executor.extraJavaOptions=-Duser.home=/tmp -Djava.security.manager=allow" \
     --conf "spark.streaming.stopGracefullyOnShutdown=true" \
     --conf "spark.streaming.kafka.consumer.poll.ms=1000" \
+    --conf "spark.hadoop.fs.defaultFS=file:///" \
+    --conf "spark.hadoop.hadoop.security.authentication=simple" \
     --packages org.postgresql:postgresql:42.7.3 \
     /opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar \
-    "kafka:9093" "ad-events" "jdbc:postgresql://postgres:5432/airflow" "tabulauser" "tabulapass"
+    "kafka:9093" "ad-events" "jdbc:postgresql://postgres:5432/tabularasadb" "tabulauser" "tabulapass"
 ) &
 SPARK_SUBMIT_PID=$!
 
@@ -153,7 +164,7 @@ fi
 
 # Check for data in the table
 echo "🔍 Checking if data was properly processed..."
-RECORD_COUNT=$(docker exec postgres psql -U tabulauser -d airflow -t -c "SELECT COUNT(*) FROM aggregated_campaign_stats;" | xargs)
+RECORD_COUNT=$(docker exec postgres psql -U tabulauser -d tabularasadb -t -c "SELECT COUNT(*) FROM aggregated_campaign_stats;" | xargs)
 echo "📊 Found $RECORD_COUNT records in aggregated_campaign_stats table."
 
 if [[ "$RECORD_COUNT" -gt 10 ]]; then
