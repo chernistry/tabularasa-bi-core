@@ -6,9 +6,9 @@ services:
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_USER=airflow
-      - POSTGRES_PASSWORD=airflow
-      - POSTGRES_DB=airflow
+      - POSTGRES_USER=tabularasadb
+      - POSTGRES_PASSWORD=tabularasadb
+      - POSTGRES_DB=tabularasadb
     networks:
       - bi_network
 

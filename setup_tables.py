@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS aggregated_campaign_stats (
     product_category_6 INTEGER,
     product_category_7 INTEGER,
     event_count BIGINT,
-    total_spend_usd DECIMAL(10, 2),
+    spend_usd DECIMAL(10, 2),
     total_sales_amount_euro DECIMAL(10, 2),
     total_sales_count BIGINT,
     updated_at TIMESTAMP,
@@ -177,7 +177,7 @@ def generate_pipeline_metrics(start_date, days=30):
         (campaign_id, event_type, window_start_time, device_type, country_code, 
          product_brand, product_age_group, product_category_1, product_category_2, 
          product_category_3, product_category_4, product_category_5, product_category_6, 
-         product_category_7, event_count, total_spend_usd, total_sales_amount_euro, 
+         product_category_7, event_count, spend_usd, total_sales_amount_euro, 
          total_sales_count, updated_at)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """

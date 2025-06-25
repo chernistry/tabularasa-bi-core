@@ -17,7 +17,7 @@ from pathlib import Path
 
 DATABASE_URL: str = os.getenv(
     "DATABASE_URL",
-    "postgresql+asyncpg://airflow:airflow@localhost:5432/airflow",
+    "postgresql+asyncpg://tabulauser:tabulapass@localhost:5432/tabularasadb",
 )
 
 engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, echo=False)

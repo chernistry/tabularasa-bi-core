@@ -171,7 +171,7 @@ public class Q1E2eFatJarTest {
     static void prepareDatabase() throws Exception {
         LOGGER.info("Preparing database schema...");
         String jdbcUrl = String.format("jdbc:postgresql://%s:%d/tabularasadb", postgres.getHost(), postgres.getMappedPort(5432));
-        try (Connection conn = DriverManager.getConnection(jdbcUrl, "tabularasadb", "tabularasadb"); Statement stmt = conn.createStatement()) {
+        try (Connection conn = DriverManager.getConnection(jdbcUrl, "tabulauser", "tabulapass"); Statement stmt = conn.createStatement()) {
             stmt.execute("DROP TABLE IF EXISTS aggregated_campaign_stats;");
             stmt.execute("CREATE TABLE aggregated_campaign_stats (campaign_id VARCHAR(255), window_start_time TIMESTAMP, event_type VARCHAR(50), event_count BIGINT, total_bid_amount DECIMAL(18, 6), updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (campaign_id, window_start_time, event_type));");
             LOGGER.info("Database schema prepared successfully.");
@@ -234,7 +234,7 @@ public class Q1E2eFatJarTest {
                         "--conf spark.ui.enabled=true " +
                         "--conf spark.jars.ivy=/tmp/.ivy2 " +
                         "--packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.5,org.postgresql:postgresql:42.7.3 " +
-                        "/opt/spark_apps/%s kafka:9092 ad-events jdbc:postgresql://postgres:5432/tabularasadb tabularasadb tabularasadb", jarName);
+                        "/opt/spark_apps/%s kafka:9092 ad-events jdbc:postgresql://postgres:5432/tabularasadb tabulauser tabulapass", jarName);
 
         // Launch the Spark job and capture its output
         ExecCreateCmdResponse execCreateCmdResponse = DockerClientFactory.instance().client().execCreateCmd(sparkContainerId)
@@ -281,7 +281,7 @@ public class Q1E2eFatJarTest {
     void verifyResultsInDatabase() throws Exception {
         LOGGER.info("Verifying results in PostgreSQL...");
         String jdbcUrl = String.format("jdbc:postgresql://%s:%d/tabularasadb", postgres.getHost(), postgres.getMappedPort(5432));
-        try (Connection conn = DriverManager.getConnection(jdbcUrl, "tabularasadb", "tabularasadb"); 
+        try (Connection conn = DriverManager.getConnection(jdbcUrl, "tabulauser", "tabulapass"); 
              Statement stmt = conn.createStatement()) {
             
             // Check if table exists
