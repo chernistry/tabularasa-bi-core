@@ -27,7 +27,21 @@ public class AdEventSparkStreamer {
             .add("campaign_id", "string")
             .add("event_type", "string")
             .add("user_id", "string")
-            .add("bid_amount_usd", "double");
+            .add("spend_usd", "double")
+            .add("device_type", "string")
+            .add("country_code", "string")
+            .add("product_brand", "string")
+            .add("product_age_group", "string")
+            .add("product_category_1", "integer")
+            .add("product_category_2", "integer")
+            .add("product_category_3", "integer")
+            .add("product_category_4", "integer")
+            .add("product_category_5", "integer")
+            .add("product_category_6", "integer")
+            .add("product_category_7", "integer")
+            .add("product_price", "double")
+            .add("sales_amount_euro", "double")
+            .add("sale", "boolean");
 
     public static void main(String[] args) {
         // Basic argument parsing
@@ -78,11 +92,24 @@ public class AdEventSparkStreamer {
                 .groupBy(
                         window(col("event_timestamp"), "1 minute"),
                         col("campaign_id"),
-                        col("event_type")
+                        col("event_type"),
+                        col("device_type"),
+                        col("country_code"),
+                        col("product_brand"),
+                        col("product_age_group"),
+                        col("product_category_1"),
+                        col("product_category_2"),
+                        col("product_category_3"),
+                        col("product_category_4"),
+                        col("product_category_5"),
+                        col("product_category_6"),
+                        col("product_category_7")
                 )
                 .agg(
                         count("*").alias("event_count"),
-                        sum("bid_amount_usd").alias("total_bid_amount")
+                        sum("spend_usd").alias("total_spend_usd"),
+                        sum("sales_amount_euro").alias("total_sales_amount_euro"),
+                        sum(when(col("sale"), 1).otherwise(0)).alias("total_sales_count")
                 );
 
         LOGGER.info("Starting streaming query with windowing to PostgreSQL...");
@@ -104,11 +131,19 @@ public class AdEventSparkStreamer {
                         connectionProperties.put("password", dbPassword);
 
                         String upsertSQL = String.format(
-                                "INSERT INTO %s (campaign_id, event_type, window_start_time, event_count, total_bid_amount, updated_at) " +
-                                        "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP) " +
-                                        "ON CONFLICT (campaign_id, event_type, window_start_time) DO UPDATE SET " +
+                                "INSERT INTO %s (campaign_id, event_type, window_start_time, device_type, country_code, " +
+                                        "product_brand, product_age_group, product_category_1, product_category_2, " +
+                                        "product_category_3, product_category_4, product_category_5, product_category_6, " +
+                                        "product_category_7, event_count, total_spend_usd, total_sales_amount_euro, total_sales_count, updated_at) " +
+                                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) " +
+                                        "ON CONFLICT (campaign_id, event_type, window_start_time, device_type, country_code, " +
+                                        "product_brand, product_age_group, product_category_1, product_category_2, " +
+                                        "product_category_3, product_category_4, product_category_5, product_category_6, " +
+                                        "product_category_7) DO UPDATE SET " +
                                         "event_count = EXCLUDED.event_count, " +
-                                        "total_bid_amount = EXCLUDED.total_bid_amount, " +
+                                        "total_spend_usd = EXCLUDED.total_spend_usd, " +
+                                        "total_sales_amount_euro = EXCLUDED.total_sales_amount_euro, " +
+                                        "total_sales_count = EXCLUDED.total_sales_count, " +
                                         "updated_at = CURRENT_TIMESTAMP",
                                 TARGET_TABLE
                         );
@@ -122,8 +157,21 @@ public class AdEventSparkStreamer {
                                     statement.setString(1, record.getString(record.fieldIndex("campaign_id")));
                                     statement.setString(2, record.getString(record.fieldIndex("event_type")));
                                     statement.setTimestamp(3, record.getTimestamp(record.fieldIndex("window_start_time")));
-                                    statement.setLong(4, record.getLong(record.fieldIndex("event_count")));
-                                    statement.setDouble(5, record.getDouble(record.fieldIndex("total_bid_amount")));
+                                    statement.setString(4, record.getString(record.fieldIndex("device_type")));
+                                    statement.setString(5, record.getString(record.fieldIndex("country_code")));
+                                    statement.setString(6, record.getString(record.fieldIndex("product_brand")));
+                                    statement.setString(7, record.getString(record.fieldIndex("product_age_group")));
+                                    statement.setInt(8, record.getInt(record.fieldIndex("product_category_1")));
+                                    statement.setInt(9, record.getInt(record.fieldIndex("product_category_2")));
+                                    statement.setInt(10, record.getInt(record.fieldIndex("product_category_3")));
+                                    statement.setInt(11, record.getInt(record.fieldIndex("product_category_4")));
+                                    statement.setInt(12, record.getInt(record.fieldIndex("product_category_5")));
+                                    statement.setInt(13, record.getInt(record.fieldIndex("product_category_6")));
+                                    statement.setInt(14, record.getInt(record.fieldIndex("product_category_7")));
+                                    statement.setLong(15, record.getLong(record.fieldIndex("event_count")));
+                                    statement.setDouble(16, record.getDouble(record.fieldIndex("total_spend_usd")));
+                                    statement.setDouble(17, record.getDouble(record.fieldIndex("total_sales_amount_euro")));
+                                    statement.setLong(18, record.getLong(record.fieldIndex("total_sales_count")));
                                     statement.addBatch();
                                     count++;
                                     if (count % 1000 == 0) {

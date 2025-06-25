@@ -35,6 +35,10 @@ class KPIResponse(BaseModel):
     conversions: int = Field(..., ge=0)
     ctr: float = Field(..., ge=0)
     spend_usd: float = Field(..., ge=0)
+    revenue_euro: float = Field(..., ge=0)
+    roas: float = Field(..., ge=0)
+    cpa: float = Field(..., ge=0)
+    conversion_rate: float = Field(..., ge=0)
 
 class ROIDailyPoint(BaseModel):
     window_start_time: str
@@ -60,6 +64,14 @@ class PerformanceByDevice(BaseModel):
 
 class RevenueByCategory(BaseModel):
     product_category_1: str
+    total_revenue: float
+
+class RevenueByBrand(BaseModel):
+    product_brand: str
+    total_revenue: float
+
+class RevenueByAgeGroup(BaseModel):
+    product_age_group: str
     total_revenue: float
 
 # --- FastAPI App ----------------------------------------------------------------------------------
@@ -135,6 +147,8 @@ try:
     CAMPAIGN_PERFORMANCE_QUERY = load_sql_query("kpi_queries.sql", "Campaign Performance Query")
     DEVICE_PERFORMANCE_QUERY = load_sql_query("kpi_queries.sql", "Performance by Device Type")
     CATEGORY_REVENUE_QUERY = load_sql_query("kpi_queries.sql", "Revenue by Product Category")
+    BRAND_REVENUE_QUERY = load_sql_query("kpi_queries.sql", "Performance by Product Brand")
+    AGE_GROUP_REVENUE_QUERY = load_sql_query("kpi_queries.sql", "Performance by Product Age Group")
 except FileNotFoundError:
     # Fallback to hardcoded queries
     KPI_QUERY = text(
@@ -161,6 +175,8 @@ except FileNotFoundError:
     FRESHNESS_QUERY = text("SELECT MAX(window_start_time) as latest_ts FROM aggregated_campaign_stats;")
     CAMPAIGN_PERFORMANCE_QUERY = text("SELECT * FROM aggregated_campaign_stats ORDER BY spend_usd DESC LIMIT 10;")
     # Note: No fallback for new queries, they must exist in the SQL file
+    BRAND_REVENUE_QUERY = None
+    AGE_GROUP_REVENUE_QUERY = None
 
 # --- Endpoints ------------------------------------------------------------------------------------
 
@@ -172,14 +188,22 @@ async def read_kpis(session: AsyncSession = Depends(get_session)) -> KPIResponse
         row = result.one_or_none()
         if not row:
             raise HTTPException(status_code=status.HTTP_204_NO_CONTENT, detail="No KPI data yet")
-        impressions, clicks, conversions, spend_usd = row
-        ctr = 0 if impressions == 0 else round(clicks / impressions * 100, 2)
+
+        impressions, clicks, conversions, spend_usd, revenue_euro, ctr, roas = row
+        
+        cpa = 0 if conversions == 0 else spend_usd / conversions
+        conversion_rate = 0 if clicks == 0 else conversions / clicks
+
         return KPIResponse(
             impressions=int(impressions),
             clicks=int(clicks),
             conversions=int(conversions),
-            ctr=ctr,
+            ctr=float(ctr),
             spend_usd=float(spend_usd),
+            revenue_euro=float(revenue_euro),
+            roas=float(roas),
+            cpa=float(cpa),
+            conversion_rate=float(conversion_rate)
         )
     except (ProgrammingError, OperationalError):
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -241,6 +265,38 @@ async def read_revenue_by_category(session: AsyncSession = Depends(get_session))
                             detail="Category revenue data unavailable.")
     return [RevenueByCategory(
         product_category_1=row.product_category_1,
+        total_revenue=row.total_revenue or 0
+    ) for row in rows]
+
+@app.get("/api/performance/by_brand", response_model=List[RevenueByBrand])
+async def read_revenue_by_brand(session: AsyncSession = Depends(get_session)) -> List[RevenueByBrand]:
+    """Return revenue aggregated by product brand."""
+    if BRAND_REVENUE_QUERY is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Query not loaded from file.")
+    try:
+        result = await session.execute(BRAND_REVENUE_QUERY)
+        rows = result.all()
+    except (ProgrammingError, OperationalError):
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="Brand revenue data unavailable.")
+    return [RevenueByBrand(
+        product_brand=row.product_brand,
+        total_revenue=row.total_revenue or 0
+    ) for row in rows]
+
+@app.get("/api/performance/by_age_group", response_model=List[RevenueByAgeGroup])
+async def read_revenue_by_age_group(session: AsyncSession = Depends(get_session)) -> List[RevenueByAgeGroup]:
+    """Return revenue aggregated by product age group."""
+    if AGE_GROUP_REVENUE_QUERY is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Query not loaded from file.")
+    try:
+        result = await session.execute(AGE_GROUP_REVENUE_QUERY)
+        rows = result.all()
+    except (ProgrammingError, OperationalError):
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="Age group revenue data unavailable.")
+    return [RevenueByAgeGroup(
+        product_age_group=row.product_age_group,
         total_revenue=row.total_revenue or 0
     ) for row in rows]
 

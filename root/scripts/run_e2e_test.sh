@@ -92,12 +92,12 @@ docker cp "$JAR_DEST" spark-worker:/opt/spark_apps/ || true
 
 # Prepare PostgreSQL table
 echo "🗄️ Waiting for PostgreSQL to be ready..."
-until docker exec postgres pg_isready -U airflow -d airflow >/dev/null 2>&1; do
+until docker exec postgres pg_isready -U tabulauser -d airflow >/dev/null 2>&1; do
   printf '.'
   sleep 2
 done
 echo " Postgres is ready. Creating aggregated_campaign_stats table if absent..."
-docker exec -i postgres psql -U airflow -d airflow <../q1_realtime_stream_processing/ddl/postgres_aggregated_campaign_stats.sql
+docker exec -i postgres psql -U tabulauser -d airflow <../q1_realtime_stream_processing/ddl/postgres_aggregated_campaign_stats.sql
 
 # Prepare Kafka topic
 echo "📻 Creating topic 'ad-events' if it does not exist..."
@@ -133,7 +133,7 @@ echo "------------------------------------------------------"
     --conf "spark.streaming.kafka.consumer.poll.ms=1000" \
     --packages org.postgresql:postgresql:42.7.3 \
     /opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar \
-    "kafka:9093" "ad-events" "jdbc:postgresql://postgres:5432/airflow" "airflow" "airflow"
+    "kafka:9093" "ad-events" "jdbc:postgresql://postgres:5432/airflow" "tabulauser" "tabulapass"
 ) &
 SPARK_SUBMIT_PID=$!
 
@@ -153,7 +153,7 @@ fi
 
 # Check for data in the table
 echo "🔍 Checking if data was properly processed..."
-RECORD_COUNT=$(docker exec postgres psql -U airflow -d airflow -t -c "SELECT COUNT(*) FROM aggregated_campaign_stats;" | xargs)
+RECORD_COUNT=$(docker exec postgres psql -U tabulauser -d airflow -t -c "SELECT COUNT(*) FROM aggregated_campaign_stats;" | xargs)
 echo "📊 Found $RECORD_COUNT records in aggregated_campaign_stats table."
 
 if [[ "$RECORD_COUNT" -gt 10 ]]; then

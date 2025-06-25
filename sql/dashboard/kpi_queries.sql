@@ -8,20 +8,31 @@
 
 -- NAME: KPI Query
 -- Provides high-level, platform-wide KPIs.
-SELECT  COALESCE(SUM(event_count) FILTER (WHERE event_type = 'impression'), 0) AS impressions,
-        COALESCE(SUM(event_count) FILTER (WHERE event_type = 'click'), 0)       AS clicks,
-        COALESCE(SUM(event_count) FILTER (WHERE event_type = 'conversion'), 0)  AS conversions,
-        COALESCE(SUM(total_bid_amount), 0)                                      AS spend_usd
+SELECT  COALESCE(SUM(CASE WHEN event_type = 'impression' THEN event_count ELSE 0 END), 0) AS impressions,
+        COALESCE(SUM(CASE WHEN event_type = 'click' THEN event_count ELSE 0 END), 0) AS clicks,
+        COALESCE(SUM(CASE WHEN event_type = 'conversion' THEN event_count ELSE 0 END), 0) AS conversions,
+        COALESCE(SUM(total_spend_usd), 0) AS total_spend_usd,
+        COALESCE(SUM(total_sales_amount_euro), 0) AS total_revenue_euro,
+        CASE
+            WHEN COALESCE(SUM(CASE WHEN event_type = 'impression' THEN event_count ELSE 0 END), 0) > 0
+            THEN COALESCE(SUM(CASE WHEN event_type = 'click' THEN event_count ELSE 0 END), 0)::NUMERIC / COALESCE(SUM(CASE WHEN event_type = 'impression' THEN event_count ELSE 0 END), 0)
+            ELSE 0
+        END AS ctr,
+        CASE
+            WHEN COALESCE(SUM(total_spend_usd), 0) > 0
+            THEN COALESCE(SUM(total_sales_amount_euro), 0) / COALESCE(SUM(total_spend_usd), 0)
+            ELSE 0
+        END AS roas
 FROM    aggregated_campaign_stats;
 
 -- NAME: ROI Trend Query
 -- Calculates daily Return on Investment (ROI) trend.
--- ROI = Revenue / Spend where Revenue = conversions * 50 EUR (fallback)
+-- ROI = Revenue / Spend
 SELECT
     DATE_TRUNC('day', window_start_time)::date AS day,
     CASE
-        WHEN SUM(total_bid_amount) > 0
-        THEN (SUM(event_count) FILTER (WHERE event_type = 'conversion')) * 50.0 / SUM(total_bid_amount)
+        WHEN SUM(total_spend_usd) > 0
+        THEN SUM(total_sales_amount_euro) / SUM(total_spend_usd)
         ELSE 0
     END AS roi
 FROM
@@ -87,5 +98,34 @@ WHERE
     product_category_1 IS NOT NULL
 GROUP BY
     product_category_1
+ORDER BY
+    total_revenue DESC;
+
+-- NAME: Performance by Product Brand
+-- Aggregates sales revenue by product brand.
+SELECT
+    product_brand,
+    COALESCE(SUM(sales_amount_euro), 0) AS total_revenue
+FROM
+    aggregated_campaign_stats
+WHERE
+    product_brand IS NOT NULL
+GROUP BY
+    product_brand
+ORDER BY
+    total_revenue DESC
+LIMIT 15;
+
+-- NAME: Performance by Product Age Group
+-- Aggregates sales revenue by product age group.
+SELECT
+    product_age_group,
+    COALESCE(SUM(sales_amount_euro), 0) AS total_revenue
+FROM
+    aggregated_campaign_stats
+WHERE
+    product_age_group IS NOT NULL
+GROUP BY
+    product_age_group
 ORDER BY
     total_revenue DESC; 

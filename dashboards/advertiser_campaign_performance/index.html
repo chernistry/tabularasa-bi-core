@@ -73,17 +73,34 @@
         <div class="dashboard-grid grid-col-2" style="margin-top: 24px;">
             <div class="card">
                 <div class="card-header">
-                    <h2 class="card-title">"Wow" Feature: Performance by Device Type</h2>
+                    <h2 class="card-title">Performance by Device Type</h2>
                     <span class="info-icon" onclick="showModal('device-modal')">ℹ️</span>
                 </div>
                 <div id="device-performance-chart" class="chart-container" style="min-height: 400px;"></div>
             </div>
             <div class="card">
                 <div class="card-header">
-                    <h2 class="card-title">"Wow" Feature: Revenue by Product Category</h2>
+                    <h2 class="card-title">Revenue by Product Category</h2>
                     <span class="info-icon" onclick="showModal('category-modal')">ℹ️</span>
                 </div>
                 <div id="category-revenue-chart" class="chart-container" style="min-height: 400px;"></div>
+            </div>
+        </div>
+
+        <div class="dashboard-grid grid-col-2" style="margin-top: 24px;">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Revenue by Brand</h2>
+                    <span class="info-icon" onclick="showModal('brand-modal')">ℹ️</span>
+                </div>
+                <div id="brand-revenue-chart" class="chart-container" style="min-height: 400px;"></div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Revenue by Age Group</h2>
+                    <span class="info-icon" onclick="showModal('age-modal')">ℹ️</span>
+                </div>
+                <div id="age-group-chart" class="chart-container" style="min-height: 400px;"></div>
             </div>
         </div>
     </div>
@@ -94,12 +111,27 @@
     <div id="segment-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('segment-modal')">&times;</span><h3>Campaign Performance (ROAS)</h3><p>This chart compares the Return On Ad Spend (ROAS) across different campaigns, helping to identify the most profitable ones. Assumes a fixed revenue per conversion for calculation.</p></div></div>
     <div id="device-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('device-modal')">&times;</span><h3>Performance by Device Type</h3><p>This chart shows total revenue and conversion rate for each device type, helping identify the most valuable user segments.</p></div></div>
     <div id="category-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('category-modal')">&times;</span><h3>Revenue by Product Category</h3><p>This treemap visualizes revenue contribution from different product categories. The larger the area, the higher the revenue, making it easy to spot top-performing categories.</p></div></div>
+    <div id="brand-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('brand-modal')">&times;</span><h3>Revenue by Brand</h3><p>This chart highlights top brands contributing to revenue, helping focus marketing partnerships.</p></div></div>
+    <div id="age-modal" class="modal"><div class="modal-content"><span class="close-button" onclick="closeModal('age-modal')">&times;</span><h3>Revenue by Age Group</h3><p>This chart shows revenue distribution across customer age segments, guiding demographic targeting.</p></div></div>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const safeDivide = (numerator, denominator) => (denominator ? numerator / denominator : 0);
-            // We assume a fixed revenue per conversion for ROAS calculation, as real revenue is not in the data.
-            const REVENUE_PER_CONVERSION = 50; 
+
+            // Fetch high-level KPIs first
+            fetch('/api/kpis')
+                .then(res => res.ok ? res.json() : Promise.reject(res.status))
+                .then(kpis => {
+                    document.getElementById('kpi-cpa').textContent = `$${kpis.cpa.toFixed(2)}`;
+                    document.getElementById('kpi-roas').innerHTML = `${kpis.roas.toFixed(2)}<span class="unit">x</span>`;
+                    document.getElementById('kpi-cr').innerHTML = `${(kpis.conversion_rate * 100).toFixed(2)}<span class="unit">%</span>`;
+                })
+                .catch(err => {
+                    console.error('Error fetching KPIs:', err);
+                    document.getElementById('kpi-cpa').textContent = 'Error';
+                    document.getElementById('kpi-roas').textContent = 'Error';
+                    document.getElementById('kpi-cr').textContent = 'Error';
+                });
 
             // Fetch campaign performance for all charts
             fetch('/api/campaign_performance')
@@ -109,26 +141,10 @@
                 })
                 .then(campaigns => {
                     if (!campaigns || campaigns.length === 0) {
-                        document.getElementById('kpi-cpa').textContent = 'N/A';
-                        document.getElementById('kpi-roas').textContent = 'N/A';
-                        document.getElementById('kpi-cr').textContent = 'N/A';
                         return;
                     }
-
-                    // --- Calculate and Display KPIs ---
-                    const totalSpend = campaigns.reduce((sum, c) => sum + c.spend_usd, 0);
-                    const totalConversions = campaigns.reduce((sum, c) => sum + c.conversions, 0);
-                    const totalClicks = campaigns.reduce((sum, c) => sum + c.clicks, 0);
                     
-                    const avgCpa = safeDivide(totalSpend, totalConversions);
-                    document.getElementById('kpi-cpa').textContent = `$${avgCpa.toFixed(2)}`;
-
-                    const totalRevenue = campaigns.reduce((sum, c) => sum + (c.conversions * REVENUE_PER_CONVERSION), 0); // Simplified for now
-                    const avgRoas = safeDivide(totalRevenue, totalSpend);
-                    document.getElementById('kpi-roas').innerHTML = `${avgRoas.toFixed(2)}<span class="unit">x</span>`;
-                    
-                    const overallCR = safeDivide(totalConversions, totalClicks);
-                    document.getElementById('kpi-cr').innerHTML = `${(overallCR * 100).toFixed(2)}<span class="unit">%</span>`;
+                    const REVENUE_PER_CONVERSION = 50; 
 
                     // --- Campaign ROAS Bar Chart ---
                     const sortedByRoas = campaigns
@@ -182,10 +198,36 @@
                 })
                 .catch(error => {
                     console.error('Error fetching campaign performance:', error);
-                    document.getElementById('kpi-cpa').textContent = 'Error';
-                    document.getElementById('kpi-roas').textContent = 'Error';
-                    document.getElementById('kpi-cr').textContent = 'Error';
                 });
+
+            // Fetch revenue by brand to calculate total revenue for KPI and render chart
+            fetch('/api/performance/by_brand')
+                .then(res => res.ok ? res.json() : Promise.reject(res.status))
+                .then(brandData => {
+                    // Brand revenue bar chart
+                    Plotly.newPlot('brand-revenue-chart', [{
+                        x: brandData.map(d => d.total_revenue),
+                        y: brandData.map(d => d.product_brand),
+                        type: 'bar',
+                        orientation: 'h',
+                        marker: { color: plotTheme.colorway[2] }
+                    }], { ...plotTheme, yaxis: { autorange: 'reversed' }, xaxis: { title: 'Revenue (€)' }, title: 'Revenue by Brand' }, { responsive: true });
+                })
+                .catch(err => console.error('Error fetching brand revenue:', err));
+
+            // Fetch age group performance
+            fetch('/api/performance/by_age_group')
+                .then(res => res.ok ? res.json() : Promise.reject(res.status))
+                .then(ageData => {
+                    Plotly.newPlot('age-group-chart', [{
+                        labels: ageData.map(d => d.product_age_group),
+                        values: ageData.map(d => d.total_revenue),
+                        type: 'pie',
+                        hole: .4,
+                    }], { ...plotTheme, title: 'Revenue Share by Age Group' }, { responsive: true });
+                })
+                .catch(err => console.error('Error fetching age group data:', err));
+
 
             // Fetch device performance
             fetch('/api/performance/by_device')
@@ -202,32 +244,28 @@
                         name: 'Conversion Rate',
                         type: 'scatter',
                         yaxis: 'y2'
-                    }], { 
-                        ...plotTheme, 
-                        title: 'Revenue and CR by Device',
-                        yaxis: { title: 'Total Revenue ($)' },
-                        yaxis2: { title: 'Conversion Rate', overlaying: 'y', side: 'right' }
-                    }, { responsive: true });
-                })
-                .catch(error => console.error('Error fetching device performance:', error));
-            
-            // Fetch category revenue for Treemap
-            fetch('/api/performance/by_category')
-                .then(res => res.ok ? res.json() : Promise.reject(res.status))
-                .then(data => {
-                    Plotly.newPlot('category-revenue-chart', [{
-                        type: 'treemap',
-                        labels: data.map(d => `Category ${d.product_category_1}`),
-                        parents: data.map(() => "Categories"),
-                        values: data.map(d => d.total_revenue),
-                        textinfo: 'label+value+percent root'
                     }], {
-                         ...plotTheme, 
-                         title: 'Revenue by Product Category'
+                        ...plotTheme,
+                        title: 'Device Performance (Revenue & Conv. Rate)',
+                        yaxis: { title: 'Total Revenue (€)' },
+                        yaxis2: {
+                            title: 'Conversion Rate',
+                            overlaying: 'y',
+                            side: 'right'
+                        }
                     }, { responsive: true });
                 })
-                .catch(error => console.error('Error fetching category revenue:', error));
+                .catch(err => console.error('Error fetching device data:', err));
         });
+
+        // Modal handling
+        function showModal(id) { document.getElementById(id).style.display = 'block'; }
+        function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+        window.onclick = function(event) {
+            if (event.target.classList.contains('modal')) {
+                event.target.style.display = 'none';
+            }
+        }
     </script>
 </body>
 </html> 

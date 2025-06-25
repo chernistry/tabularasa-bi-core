@@ -180,11 +180,109 @@
                 return response.json();
             })
             .then(data => {
-                // ... rest of the existing code ...
+                if (!data || data.length === 0) {
+                    console.warn("Нет данных о здоровье пайплайна");
+                    return;
+                }
+                
+                // Преобразуем данные для отображения
+                const dates = data.map(d => {
+                    const date = new Date(d.day);
+                    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                });
+                
+                // Выбираем последние 6 точек для соответствия текущим графикам
+                const last6 = Math.max(0, data.length - 6);
+                const displayDates = dates.slice(last6);
+                
+                // Обновляем данные графиков
+                const displayLag = data.slice(last6).map(d => d.avg_processing_time);
+                const displayEtl = data.slice(last6).map(d => d.success_rate);
+                const displayFreshness = data.slice(last6).map(d => d.data_freshness_hours);
+                const displayQuality = data.slice(last6).map(d => d.quality_score);
+                
+                // Получаем ROI данные для того же периода
+                fetch('/api/roi_trend')
+                    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+                    .then(roiData => {
+                        if (!roiData || roiData.length === 0) return;
+                        
+                        // Преобразуем даты ROI в такой же формат
+                        const roiDates = roiData.map(d => {
+                            const date = new Date(d.window_start_time);
+                            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                        });
+                        
+                        // Находим соответствующие индексы
+                        const matchingIndices = [];
+                        displayDates.forEach(date => {
+                            const idx = roiDates.indexOf(date);
+                            if (idx >= 0) matchingIndices.push(idx);
+                        });
+                        
+                        // Выбираем соответствующие ROI значения
+                        const displayRoi = matchingIndices.map(idx => roiData[idx].roi);
+                        
+                        // Обновляем основной график
+                        Plotly.update(businessChart, {
+                            x: [displayDates],
+                            y: [displayRoi]
+                        }, {});
+                        
+                        // Обновляем технические графики
+                        Plotly.update('lag-chart', {
+                            x: [displayDates],
+                            y: [displayLag]
+                        }, {});
+                        
+                        Plotly.update('etl-chart', {
+                            x: [displayDates],
+                            y: [displayEtl]
+                        }, {});
+                        
+                        Plotly.update('freshness-chart', {
+                            x: [displayDates],
+                            y: [displayFreshness]
+                        }, {});
+                        
+                        Plotly.update('quality-chart', {
+                            x: [displayDates],
+                            y: [displayQuality]
+                        }, {});
+                        
+                        // Ищем аномалию - наименьший показатель ETL Success
+                        const minEtlIdx = displayEtl.indexOf(Math.min(...displayEtl));
+                        if (minEtlIdx >= 0) {
+                            // Автоматически подсвечиваем аномалию
+                            highlightPoint('business-kpi-chart', minEtlIdx);
+                            highlightPoint('lag-chart', minEtlIdx);
+                            highlightPoint('etl-chart', minEtlIdx);
+                            highlightPoint('freshness-chart', minEtlIdx);
+                            highlightPoint('quality-chart', minEtlIdx);
+                            
+                            // Добавляем аннотацию для аномалии
+                            const annotation = {
+                                x: displayDates[minEtlIdx],
+                                y: displayRoi[minEtlIdx],
+                                xref: 'x',
+                                yref: 'y',
+                                text: `<b>Root Cause Analysis:</b><br>ETL Failure (${displayEtl[minEtlIdx].toFixed(1)}% success)<br>Stale Data (${displayFreshness[minEtlIdx].toFixed(1)} hrs old)<br>Quality Score Drop (${displayQuality[minEtlIdx].toFixed(1)}%)`,
+                                showarrow: true,
+                                arrowhead: 2,
+                                ax: 0,
+                                ay: -80,
+                                bgcolor: 'rgba(255, 248, 225, 0.9)',
+                                bordercolor: 'var(--warning-color, #ffc107)',
+                                borderwidth: 1,
+                                font: { size: 12 }
+                            };
+                            Plotly.relayout(businessChart, { annotations: [annotation] });
+                        }
+                    })
+                    .catch(error => console.error('Error fetching ROI trend:', error));
             })
             .catch(error => {
                 console.error('Error fetching pipeline health:', error);
-                document.querySelectorAll('#kpi-freshness,#kpi-etl-success,#kpi-quality').forEach(el => el.textContent = 'N/A');
             });
     </script>
 </body>

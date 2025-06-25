@@ -7,13 +7,13 @@ services:
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_USER=airflow
-      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_USER=tabulauser
+      - POSTGRES_PASSWORD=tabulapass
       - POSTGRES_DB=airflow
     volumes:
       - tabularasa_pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      test: ["CMD-SHELL", "pg_isready -U tabulauser -d airflow"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -185,8 +185,8 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: simple
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/airflow
-      SPRING_DATASOURCE_USERNAME: airflow
-      SPRING_DATASOURCE_PASSWORD: airflow
+      SPRING_DATASOURCE_USERNAME: tabulauser
+      SPRING_DATASOURCE_PASSWORD: tabulapass
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9093
     volumes:
       - ../q1_realtime_stream_processing/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT-exec.jar:/app/app.jar:ro
@@ -198,7 +198,7 @@ services:
     image: prometheuscommunity/postgres-exporter:v0.15.0
     container_name: postgres-exporter
     environment:
-      - DATA_SOURCE_NAME=postgresql://airflow:airflow@tabularasa_postgres_db:5432/airflow?sslmode=disable
+      - DATA_SOURCE_NAME=postgresql://tabulauser:tabulapass@tabularasa_postgres_db:5432/airflow?sslmode=disable
     ports:
       - "9187:9187"
     depends_on:
