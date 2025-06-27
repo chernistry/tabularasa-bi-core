@@ -55,11 +55,19 @@ public class AdEventSparkStreamer {
             System.exit(1);
         }
 
+        // Set Hadoop user explicitly to avoid authentication errors
+        String currentUser = System.getProperty("user.name", "spark");
+        System.setProperty("HADOOP_USER_NAME", currentUser);
+        LOGGER.info("Setting HADOOP_USER_NAME to: {}", currentUser);
+
         String kafkaBootstrapServers = args[0];
         String adEventsTopic = args[1];
         String dbUrl = args[2];
         String dbUsername = args[3];
         String dbPassword = args.length > 4 ? args[4] : ""; // Password can be empty for some setups
+
+        LOGGER.info("Starting with parameters: kafka={}, topic={}, dbUrl={}, dbUser={}", 
+                kafkaBootstrapServers, adEventsTopic, dbUrl, dbUsername);
 
         SparkSession spark = SparkSession.builder()
                 .appName("AdEventSparkStreamer")

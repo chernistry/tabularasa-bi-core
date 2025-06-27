@@ -1,195 +1,159 @@
 package com.tabularasa.bi.q1_realtime_stream_processing.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.jdbc.core.JdbcTemplate;
+import com.tabularasa.bi.q1_realtime_stream_processing.model.AdEvent;
+import com.tabularasa.bi.q1_realtime_stream_processing.model.AggregatedCampaignStats;
+import com.tabularasa.bi.q1_realtime_stream_processing.repository.AggregatedCampaignStatsRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Service for processing ad event streams without Apache Spark.
- * Aggregates events by time window, campaign, and event type, then saves to DB.
+ * Simple processor for ad events that uses Kafka listeners and in-memory buffers.
  */
 @Service
+@Slf4j
+@RequiredArgsConstructor
 public class AdEventsSimpleProcessor {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(AdEventsSimpleProcessor.class);
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private final AggregatedCampaignStatsRepository repository;
+    
+    // In-memory buffers for aggregation
+    private final Map<String, Map<String, Long>> eventCounts = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, BigDecimal>> bidAmounts = new ConcurrentHashMap<>();
+    
+    // Time window tracking
+    private LocalDateTime windowStartTime = LocalDateTime.now();
+    private final AtomicBoolean processing = new AtomicBoolean(false);
 
-    private final JdbcTemplate jdbcTemplate;
-    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-    private final Map<WindowKey, AggregatedStats> aggregatedDataMap = new ConcurrentHashMap<>();
-
-    @Value("${spring.profiles.active:default}")
-    private String activeProfile;
-
-    @Autowired
-    public AdEventsSimpleProcessor(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
-        // Start periodic DB save
-        scheduler.scheduleAtFixedRate(this::saveAggregatedStatsToDb, 60, 60, TimeUnit.SECONDS);
+    /**
+     * Start processing events from Kafka.
+     */
+    public void startProcessing() {
+        log.info("Starting simple ad event processing");
+        processing.set(true);
+        windowStartTime = LocalDateTime.now();
     }
 
     /**
-     * Kafka listener for ad events
+     * Stop processing events from Kafka.
      */
-    @KafkaListener(topics = "${kafka.topic.ad-events}", groupId = "${kafka.group.id}")
-    public void processAdEvent(String adEventJson) {
+    public void stopProcessing() {
+        log.info("Stopping simple ad event processing");
+        processing.set(false);
+        // Flush any remaining data
+        flushAggregatedData();
+    }
+
+    /**
+     * Kafka listener for ad events.
+     * 
+     * @param adEvent The ad event from Kafka
+     */
+    @KafkaListener(topics = "${app.kafka.topics.ad-events}", groupId = "${app.kafka.group-id}")
+    public void processEvent(AdEvent adEvent) {
+        if (!processing.get()) {
+            return; // Skip if not processing
+        }
+        
         try {
-            // Log the raw JSON received
-            LOGGER.debug("Received raw JSON from Kafka: {}", adEventJson);
-
-            JsonNode eventNode = objectMapper.readTree(adEventJson);
-
-            // Log parsed fields from JSON
-            LOGGER.debug("Parsing fields from JSON");
-
-            // Robust timestamp parsing to handle 'Z' (UTC)
-            String timestampStr = eventNode.get("timestamp").asText();
-            java.time.Instant instant = java.time.Instant.parse(timestampStr); // Handles 'Z' for UTC
-            LocalDateTime timestamp = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
-            LOGGER.debug("Parsed timestamp: {}", timestamp);
-
-            String campaignId = eventNode.get("campaign_id").asText();
-            LOGGER.debug("Parsed campaignId: {}", campaignId);
-
-            String eventType = eventNode.get("event_type").asText();
-            LOGGER.debug("Parsed eventType: {}", eventType);
-
-            double bidAmount = eventNode.get("bid_amount_usd").asDouble();
-            LOGGER.debug("Parsed bidAmount: {}", bidAmount);
-
-            // Calculate window start (truncate to minute)
-            LocalDateTime windowStart = timestamp.withSecond(0).withNano(0);
-            LOGGER.debug("Calculated windowStart: {}", windowStart);
-
-            // Key for aggregation: (campaign_id, event_type, window_start)
-            WindowKey key = new WindowKey(campaignId, eventType, windowStart);
-            LOGGER.debug("Created WindowKey: {}", key);
-
-            // Update aggregation
-            aggregatedDataMap.compute(key, (k, stats) -> {
-                if (stats == null) {
-                    stats = new AggregatedStats();
-                    LOGGER.debug("Created new AggregatedStats for key: {}", k);
-                } else {
-                    LOGGER.debug("Updating existing AggregatedStats for key: {}", k);
-                }
-                stats.eventCount++;
-                stats.totalBidAmount += bidAmount;
-                LOGGER.debug("Updated stats: count={}, totalBid={}", stats.eventCount, stats.totalBidAmount);
-                return stats;
-            });
-
-            LOGGER.debug("Processed event: campaign={}, type={}, window_start={}", campaignId, eventType, windowStart);
-            LOGGER.debug("Current aggregatedDataMap size: {}", aggregatedDataMap.size());
+            log.debug("Processing ad event: {}", adEvent);
+            
+            String campaignId = adEvent.getCampaignId();
+            String eventType = adEvent.getEventType();
+            
+            // Update event counts
+            eventCounts.computeIfAbsent(campaignId, k -> new ConcurrentHashMap<>())
+                    .compute(eventType, (k, v) -> (v == null) ? 1 : v + 1);
+            
+            // Update bid amounts
+            bidAmounts.computeIfAbsent(campaignId, k -> new ConcurrentHashMap<>())
+                    .compute(eventType, (k, v) -> {
+                        if (v == null) {
+                            return adEvent.getBidAmountUsd();
+                        } else {
+                            return v.add(adEvent.getBidAmountUsd());
+                        }
+                    });
         } catch (Exception e) {
-            LOGGER.error("Error processing ad event: {}", adEventJson, e);
+            log.error("Error processing ad event: {}", e.getMessage(), e);
         }
     }
 
     /**
-     * Periodically saves aggregated data to DB
+     * Scheduled method to flush aggregated data to the database.
+     * Runs every minute.
      */
-    @Transactional
-    public void saveAggregatedStatsToDb() {
-        LOGGER.debug("Saving aggregated data, record count: {}", aggregatedDataMap.size());
-        if (aggregatedDataMap.isEmpty()) {
-            return;
+    @Scheduled(fixedRate = 60000) // Every minute
+    public void flushAggregatedData() {
+        if (!processing.get() && eventCounts.isEmpty()) {
+            return; // Skip if not processing and no data
         }
-        // Copy and clear map
-        Map<WindowKey, AggregatedStats> dataToSave = new HashMap<>(aggregatedDataMap);
-        aggregatedDataMap.clear();
-        // SQL for upsert
-        String sql = "INSERT INTO aggregated_campaign_stats " +
-                "(campaign_id, event_type, window_start_time, event_count, total_bid_amount, updated_at) " +
-                "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP) " +
-                "ON CONFLICT (campaign_id, event_type, window_start_time) DO UPDATE SET " +
-                "event_count = aggregated_campaign_stats.event_count + EXCLUDED.event_count, " +
-                "total_bid_amount = aggregated_campaign_stats.total_bid_amount + EXCLUDED.total_bid_amount, " +
-                "updated_at = CURRENT_TIMESTAMP";
-        for (Map.Entry<WindowKey, AggregatedStats> entry : dataToSave.entrySet()) {
-            WindowKey key = entry.getKey();
-            AggregatedStats stats = entry.getValue();
-            try {
-                jdbcTemplate.update(sql,
-                        key.campaignId,
-                        key.eventType,
-                        key.windowStart,
-                        stats.eventCount,
-                        stats.totalBidAmount);
-                LOGGER.debug("Saved aggregated stats: campaign={}, type={}, window_start={}, count={}, total_bid_amount={}",
-                        key.campaignId, key.eventType, key.windowStart, stats.eventCount, stats.totalBidAmount);
-            } catch (Exception e) {
-                LOGGER.error("Error saving aggregated stats: {}", key, e);
+        
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime windowEndTime = now;
+        
+        log.info("Flushing aggregated data from {} to {}", windowStartTime, windowEndTime);
+        
+        // Process each campaign's data
+        for (Map.Entry<String, Map<String, Long>> campaignEntry : eventCounts.entrySet()) {
+            String campaignId = campaignEntry.getKey();
+            Map<String, Long> counts = campaignEntry.getValue();
+            
+            // Process each event type for this campaign
+            for (Map.Entry<String, Long> eventEntry : counts.entrySet()) {
+                String eventType = eventEntry.getKey();
+                Long count = eventEntry.getValue();
+                
+                // Get the bid amount for this campaign and event type
+                BigDecimal totalBid = bidAmounts.getOrDefault(campaignId, new HashMap<>())
+                        .getOrDefault(eventType, BigDecimal.ZERO);
+                
+                // Check if we already have a record for this window
+                Optional<AggregatedCampaignStats> existingStats = repository
+                        .findByCampaignIdAndEventTypeAndWindowStartTimeAndWindowEndTime(
+                                campaignId, eventType, windowStartTime, windowEndTime);
+                
+                if (existingStats.isPresent()) {
+                    // Update existing record
+                    AggregatedCampaignStats stats = existingStats.get();
+                    stats.setEventCount(stats.getEventCount() + count);
+                    stats.setTotalBidAmount(stats.getTotalBidAmount().add(totalBid));
+                    stats.setLastUpdated(now);
+                    repository.save(stats);
+                } else {
+                    // Create new record
+                    AggregatedCampaignStats stats = AggregatedCampaignStats.builder()
+                            .campaignId(campaignId)
+                            .eventType(eventType)
+                            .windowStartTime(windowStartTime)
+                            .windowEndTime(windowEndTime)
+                            .eventCount(count)
+                            .totalBidAmount(totalBid)
+                            .lastUpdated(now)
+                            .build();
+                    repository.save(stats);
+                }
             }
         }
-    }
-
-    /**
-     * Key for identifying aggregation window
-     */
-    private static class WindowKey {
-        private final String campaignId;
-        private final String eventType;
-        private final LocalDateTime windowStart;
-        public WindowKey(String campaignId, String eventType, LocalDateTime windowStart) {
-            this.campaignId = campaignId;
-            this.eventType = eventType;
-            this.windowStart = windowStart;
-        }
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            WindowKey windowKey = (WindowKey) o;
-            return campaignId.equals(windowKey.campaignId) &&
-                    eventType.equals(windowKey.eventType) &&
-                    windowStart.equals(windowKey.windowStart);
-        }
-        @Override
-        public int hashCode() {
-            int result = campaignId.hashCode();
-            result = 31 * result + eventType.hashCode();
-            result = 31 * result + windowStart.hashCode();
-            return result;
-        }
-        @Override
-        public String toString() {
-            return "WindowKey{" +
-                    "campaignId='" + campaignId + '\'' +
-                    ", eventType='" + eventType + '\'' +
-                    ", windowStart=" + windowStart +
-                    '}';
-        }
-    }
-
-    /**
-     * Aggregated stats for a window
-     */
-    private static class AggregatedStats {
-        private long eventCount;
-        private double totalBidAmount;
-        @Override
-        public String toString() {
-            return "AggregatedStats{" +
-                    "eventCount=" + eventCount +
-                    ", totalBidAmount=" + totalBidAmount +
-                    '}';
-        }
+        
+        // Clear the buffers for the next window
+        eventCounts.clear();
+        bidAmounts.clear();
+        
+        // Set the new window start time
+        windowStartTime = now;
+        
+        log.info("Aggregated data flushed successfully, starting new window");
     }
 }

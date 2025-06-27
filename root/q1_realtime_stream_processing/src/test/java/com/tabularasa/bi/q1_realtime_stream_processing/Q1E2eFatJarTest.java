@@ -244,9 +244,11 @@ public class Q1E2eFatJarTest {
                 "/opt/bitnami/spark/bin/spark-submit --verbose " +
                 "--class com.tabularasa.bi.q1_realtime_stream_processing.spark.AdEventSparkStreamer " +
                 "--master spark://spark-master:7077 " +
-                "--conf spark.driver.extraJavaOptions=-Dlog4j.configuration=log4j-debug.properties " +
+                "--conf spark.driver.extraJavaOptions=\"-Dlog4j.configuration=log4j-debug.properties -Dhadoop.security.authentication=simple -Djavax.security.auth.useSubjectCredsOnly=false -Djava.security.krb5.conf=/dev/null\" " +
                 "--conf spark.hadoop.fs.defaultFS=file:/// " +
                 "--conf spark.hadoop.hadoop.security.authentication=simple " +
+                "--conf spark.kerberos.keytab=none " +
+                "--conf spark.kerberos.principal=none " +
                 "--conf spark.jars.ivy=/tmp/.ivy2 " +
                 "--packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.5,org.postgresql:postgresql:42.7.3 " +
                 "/opt/spark_apps/%s kafka:9092 ad-events jdbc:postgresql://postgres:5432/tabularasadb tabulauser tabulapass", jarName);
