@@ -99,7 +99,7 @@ done
 echo " Postgres is ready. Creating aggregated_campaign_stats table if absent..."
 docker exec -i postgres psql -U tabulauser -d tabularasadb <../q1_realtime_stream_processing/ddl/postgres_aggregated_campaign_stats.sql
 
-# Prepare Kafka topic
+# Prepare Kafka topic (KRaft mode)
 echo "📻 Creating topic 'ad-events' if it does not exist..."
 docker exec kafka /opt/bitnami/kafka/bin/kafka-topics.sh --create --if-not-exists \
   --bootstrap-server kafka:9093 --replication-factor 1 --partitions 1 \

@@ -221,20 +221,35 @@ public class Q1E2eFatJarTest {
         // Give Kafka a moment to setup the topic
         TimeUnit.SECONDS.sleep(5);
 
+        // Create user and prepare environment in Spark container
+        ExecCreateCmdResponse prepUserCmd = DockerClientFactory.instance().client().execCreateCmd(sparkContainerId)
+                .withCmd("sh", "-c", 
+                    "mkdir -p /tmp/.sparkStaging && chmod 777 /tmp/.sparkStaging && " +
+                    "mkdir -p /tmp/spark-events && chmod 777 /tmp/spark-events && " +
+                    "mkdir -p /tmp/spark_checkpoints && chmod 777 /tmp/spark_checkpoints && " +
+                    "mkdir -p /tmp/.ivy2/local && chmod -R 777 /tmp/.ivy2 && " +
+                    "echo 'hadoop:x:8000:8000:hadoop:/home/hadoop:/bin/bash' >> /etc/passwd && " +
+                    "mkdir -p /home/hadoop && chmod 777 /home/hadoop && " +
+                    "touch /tmp/spark.properties && chmod 777 /tmp/spark.properties && " +
+                    "echo 'spark.local.dir=/tmp' > /tmp/spark.properties")
+                .exec();
+        DockerClientFactory.instance().client().execStartCmd(prepUserCmd.getId())
+                .exec(new ResultCallback.Adapter<>());
+                
         // Launch Spark job with verbose output and checkpoint directory
         String sparkSubmitCommand = String.format(
-                "export HADOOP_USER_NAME=root; spark-submit --verbose " +
-                        "--class com.tabularasa.bi.q1_realtime_stream_processing.spark.AdEventSparkStreamer " +
-                        "--master spark://spark-master:7077 " +
-                        "--conf 'spark.driver.extraJavaOptions=-Dlog4j.configuration=log4j-debug.properties -Duser.home=/tmp -Duser.name=root' " +
-                        "--conf 'spark.executor.extraJavaOptions=-Duser.home=/tmp -Duser.name=root' " +
-                        "--conf spark.hadoop.fs.defaultFS=file:/// " +
-                        "--conf spark.hadoop.hadoop.security.authentication=simple " +
-                        "--conf spark.streaming.checkpointLocation=/tmp/spark_checkpoints " +
-                        "--conf spark.ui.enabled=true " +
-                        "--conf spark.jars.ivy=/tmp/.ivy2 " +
-                        "--packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.5,org.postgresql:postgresql:42.7.3 " +
-                        "/opt/spark_apps/%s kafka:9092 ad-events jdbc:postgresql://postgres:5432/tabularasadb tabulauser tabulapass", jarName);
+                "export HOME=/home/hadoop && " +
+                "export USER=hadoop && " +
+                "export HADOOP_USER_NAME=hadoop && " +
+                "/opt/bitnami/spark/bin/spark-submit --verbose " +
+                "--class com.tabularasa.bi.q1_realtime_stream_processing.spark.AdEventSparkStreamer " +
+                "--master spark://spark-master:7077 " +
+                "--conf spark.driver.extraJavaOptions=-Dlog4j.configuration=log4j-debug.properties " +
+                "--conf spark.hadoop.fs.defaultFS=file:/// " +
+                "--conf spark.hadoop.hadoop.security.authentication=simple " +
+                "--conf spark.jars.ivy=/tmp/.ivy2 " +
+                "--packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.5,org.postgresql:postgresql:42.7.3 " +
+                "/opt/spark_apps/%s kafka:9092 ad-events jdbc:postgresql://postgres:5432/tabularasadb tabulauser tabulapass", jarName);
 
         // Launch the Spark job and capture its output
         ExecCreateCmdResponse execCreateCmdResponse = DockerClientFactory.instance().client().execCreateCmd(sparkContainerId)

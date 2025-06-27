@@ -12,9 +12,17 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
+# Определяем правильное имя контейнера PostgreSQL
+echo "[INFO] Determining PostgreSQL container name..."
+POSTGRES_CONTAINER="postgres"
+if docker ps --format '{{.Names}}' | grep -q "tabularasa_postgres_db"; then
+  POSTGRES_CONTAINER="tabularasa_postgres_db"
+fi
+echo "[INFO] Found PostgreSQL container: $POSTGRES_CONTAINER"
+
 # Create the necessary table in PostgreSQL
 echo "[INFO] Setting up PostgreSQL table..."
-docker exec -i tabularasa_postgres_db psql -U tabulauser -d tabularasadb < q1_realtime_stream_processing/ddl/postgres_aggregated_campaign_stats.sql
+docker exec -i $POSTGRES_CONTAINER psql -U tabulauser -d tabularasadb < q1_realtime_stream_processing/ddl/postgres_aggregated_campaign_stats.sql
 
 # Build the project with Maven
 echo "[INFO] Building the project..."

@@ -21,19 +21,21 @@ services:
     networks:
       - bi_network
 
-  zookeeper:
-    image: bitnami/zookeeper:3.9
-    container_name: zookeeper
-    ports:
-      - "2181:2181"
-    environment:
-      - ALLOW_ANONYMOUS_LOGIN=yes
-    volumes:
-      - zookeeper_data:/bitnami/zookeeper
-    restart: always
-    networks:
-      - bi_network
+  # Zookeeper service commented out as part of Kafka KRaft migration
+  # zookeeper:
+  #   image: bitnami/zookeeper:3.9
+  #   container_name: zookeeper
+  #   ports:
+  #     - "2181:2181"
+  #   environment:
+  #     - ALLOW_ANONYMOUS_LOGIN=yes
+  #   volumes:
+  #     - zookeeper_data:/bitnami/zookeeper
+  #   restart: always
+  #   networks:
+  #     - bi_network
 
+  # Kafka configured to use KRaft mode (no Zookeeper)
   kafka:
     image: bitnami/kafka:3.7
     container_name: kafka
@@ -41,18 +43,21 @@ services:
       - "9092:9092"
     environment:
       - KAFKA_BROKER_ID=1
-      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
-      - ALLOW_PLAINTEXT_Listener=yes
-      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
-      - KAFKA_CFG_LISTENERS=INTERNAL://0.0.0.0:9093,EXTERNAL://0.0.0.0:9092
+      # KRaft mode configuration (replacing Zookeeper)
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_LISTENERS=INTERNAL://0.0.0.0:9093,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9094
       - KAFKA_CFG_ADVERTISED_LISTENERS=INTERNAL://kafka:9093,EXTERNAL://localhost:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
       - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=INTERNAL
       - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
       - KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      # Enable KRaft mode
+      - KAFKA_KRAFT_CLUSTER_ID=tabulaRasaBiKafkaClusterTest123
     volumes:
       - kafka_data:/bitnami/kafka
-    depends_on:
-      - zookeeper
     restart: always
     networks:
       - bi_network
@@ -65,7 +70,8 @@ services:
     environment:
       KAFKA_CLUSTERS_0_NAME: local-kafka
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
-      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+      # Remove Zookeeper reference for KRaft
+      # KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
     depends_on:
       - kafka
     networks:
@@ -217,7 +223,7 @@ networks:
 
 volumes:
   tabularasa_pg_data:
-  zookeeper_data:
+  # zookeeper_data:
   kafka_data:
   prometheus_data:
   alertmanager_data:
