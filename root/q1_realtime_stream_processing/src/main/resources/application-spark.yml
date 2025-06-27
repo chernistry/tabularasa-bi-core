@@ -1,0 +1,14 @@
+spring:
+  kafka:
+    security:
+      protocol: PLAINTEXT
+    bootstrap-servers: localhost:19092
+  datasource:
+    url: jdbc:postgresql://localhost:5432/tabularasadb
+    username: tabulauser
+    password: tabulapass
+app:
+  kafka:
+    bootstrap-servers: localhost:19092
+    topics:
+      ad-events: ad-events 

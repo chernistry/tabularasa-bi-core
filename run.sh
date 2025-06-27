@@ -166,15 +166,6 @@ function run_prod() {
     cp -f "$Q1_DIR/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar" "$spark_apps_dir/" || true
   fi
 
-  # Prefer Java 17 runtime – Spark 3.5 is only certified up to Java 17. Newer JVMs (e.g. 23) cause
-  # deserialization errors like "unread block data" seen in logs. We attempt to locate a JDK 17 binary
-  # via /usr/libexec/java_home (macOS) or fallback to `java` on PATH.
-  local java_cmd
-  if command -v /usr/libexec/java_home >/dev/null 2>&1; then
-    java_cmd="$(/usr/libexec/java_home -v 17 2>/dev/null)/bin/java"
-  fi
-  [[ -x "$java_cmd" ]] || java_cmd=$(command -v java)
-
   # Run the Spring Boot application
   echo "🚀 [PROD] Running Q1 application with profile '$profile'..."
   local spark_master_url="local[*]"
@@ -184,7 +175,7 @@ function run_prod() {
   local hadoop_user
   hadoop_user=$(whoami)
   
-  "$java_cmd" --add-opens=java.base/java.lang=ALL-UNNAMED \
+  java --add-opens=java.base/java.lang=ALL-UNNAMED \
        --add-opens=java.base/java.util=ALL-UNNAMED \
        --add-opens=java.base/java.lang.reflect=ALL-UNNAMED \
        --add-opens=java.base/sun.nio.ch=ALL-UNNAMED \
@@ -192,6 +183,7 @@ function run_prod() {
        --add-opens=java.base/java.lang.invoke=ALL-UNNAMED \
        -Dspring.profiles.active="$profile" \
        -Dspark.master="$spark_master_url" \
+       -Dspark.driver.memory=1g \
        -Dspring.datasource.url=jdbc:postgresql://localhost:5432/tabularasadb \
        -Dspring.kafka.bootstrap-servers=localhost:19092 \
        -Dapp.kafka.bootstrap-servers=localhost:19092 \

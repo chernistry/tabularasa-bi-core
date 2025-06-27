@@ -39,9 +39,15 @@ public class Q1RealtimeStreamProcessingApplication {
 
     @Bean
     @Profile("spark")
-    public CommandLineRunner sparkRunner() {
+    public CommandLineRunner sparkRunner(AdEventSparkStreamer streamer) {
         return args -> {
-            log.info("Spark profile is active. Please launch Spark job via spark-submit. No embedded SparkSession will be created.");
+            log.info("Spark profile is active. Launching Spark streaming job via Spring context.");
+            try {
+                streamer.startStream();
+            } catch (Exception e) {
+                log.error("Failed to start Spark streaming job", e);
+                System.exit(1);
+            }
         };
     }
 
