@@ -10,7 +10,7 @@ services:
       - POSTGRES_PASSWORD=tabularasadb
       - POSTGRES_DB=tabularasadb
     networks:
-      - bi_network
+      - docker_bi_network
 
   zookeeper:
     image: bitnami/zookeeper:3.9
@@ -19,7 +19,7 @@ services:
     environment:
       - ALLOW_ANONYMOUS_LOGIN=yes
     networks:
-      - bi_network
+      - docker_bi_network
 
   kafka:
     image: bitnami/kafka:3.7
@@ -34,7 +34,7 @@ services:
     depends_on:
       - zookeeper
     networks:
-      - bi_network
+      - docker_bi_network
 
   spark-master:
     image: bitnami/spark:3.5
@@ -47,7 +47,7 @@ services:
       - HADOOP_USER_NAME=root
       - HOME=/tmp
     networks:
-      - bi_network
+      - docker_bi_network
 
   spark-worker:
     image: bitnami/spark:3.5
@@ -58,8 +58,8 @@ services:
       - HADOOP_USER_NAME=root
       - HOME=/tmp
     networks:
-      - bi_network
+      - docker_bi_network
 
 networks:
-  bi_network:
+  docker_bi_network:
     driver: bridge 

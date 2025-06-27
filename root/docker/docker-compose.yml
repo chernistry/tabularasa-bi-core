@@ -13,7 +13,7 @@ x-airflow-common:
     tabularasa_postgres_db:
       condition: service_healthy
   networks:
-    - bi_network
+    - docker_bi_network
 
 services:
   # ================== DATABASE SERVICES ==================
@@ -37,7 +37,7 @@ services:
       retries: 5
     restart: always
     networks:
-      - bi_network
+      - docker_bi_network
 
   # Zookeeper service commented out as part of Kafka KRaft migration
   # zookeeper:
@@ -51,7 +51,7 @@ services:
   #     - zookeeper_data:/bitnami/zookeeper
   #   restart: always
   #   networks:
-  #     - bi_network
+  #     - docker_bi_network
 
   # Kafka configured to use KRaft mode (no Zookeeper)
   kafka:
@@ -77,7 +77,7 @@ services:
       - kafka_data:/bitnami/kafka
     restart: always
     networks:
-      - bi_network
+      - docker_bi_network
 
   kafka-ui:
     image: provectuslabs/kafka-ui:v0.7.2
@@ -92,7 +92,7 @@ services:
     depends_on:
       - kafka
     networks:
-      - bi_network
+      - docker_bi_network
 
   # ================== SPARK CLUSTER ==================
   # --► Spark master and worker for distributed processing
@@ -116,7 +116,7 @@ services:
       - ./spark_apps:/opt/spark_apps
       - ./spark_data:/opt/spark_data
     networks:
-      - bi_network
+      - docker_bi_network
 
   spark-worker:
     image: bitnami/spark:3.5
@@ -141,7 +141,7 @@ services:
       - ./spark_apps:/opt/spark_apps
       - ./spark_data:/opt/spark_data
     networks:
-      - bi_network
+      - docker_bi_network
 
   # ================== AIRFLOW SERVICES ==================
   # --► Airflow for orchestration
@@ -190,7 +190,7 @@ services:
           --lastname ${AIRFLOW_WWW_USER_LASTNAME:-User} \
           --role ${AIRFLOW_WWW_USER_ROLE:-Admin} \
           --email ${AIRFLOW_WWW_USER_EMAIL:-admin@example.com} \
-          --password ${AIRFLOW_WWW_USER_PASSWORD:-admin} || airflow users set-password --username ${AIRFLOW_WWW_USER_USERNAME:-admin} --password ${AIRFLOW_WWW_USER_PASSWORD:-admin}
+          --password ${AIRFLOW_WWW_USER_PASSWORD:-admin}
   
   airflow-webserver:
     <<: *airflow-common
@@ -242,7 +242,7 @@ services:
       - '--web.console.templates=/usr/share/prometheus/consoles'
     restart: always
     networks:
-      - bi_network
+      - docker_bi_network
 
   grafana:
     image: grafana/grafana:11.1.0
@@ -264,7 +264,7 @@ services:
     depends_on:
       - prometheus
     networks:
-      - bi_network
+      - docker_bi_network
 
   jaeger:
     image: jaegertracing/all-in-one:1.57
@@ -279,7 +279,7 @@ services:
       - jaeger_data:/badger
     restart: always
     networks:
-      - bi_network
+      - docker_bi_network
 
   alertmanager:
     build:
@@ -295,7 +295,7 @@ services:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
     restart: always
     networks:
-      - bi_network
+      - docker_bi_network
 
   bi-app:
     image: openjdk:17-jdk-slim
@@ -306,16 +306,19 @@ services:
     ports:
       - "8083:8083"
     environment:
-      SPRING_PROFILES_ACTIVE: simple
-      SPRING_DATASOURCE_URL: jdbc:postgresql://tabularasa_postgres_db:5432/tabularasadb
-      SPRING_DATASOURCE_USERNAME: tabulauser
-      SPRING_DATASOURCE_PASSWORD: tabulapass
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      - SPRING_PROFILES_ACTIVE=simple
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://tabularasa_postgres_db:5432/tabularasadb
+      - SPRING_DATASOURCE_USERNAME=tabulauser
+      - SPRING_DATASOURCE_PASSWORD=tabulapass
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - HADOOP_USER_NAME=root
+      - HADOOP_HOME=/opt/hadoop
+      - JAVA_OPTS="-Xms512m -Xmx1g -Dhadoop.security.authentication=simple -Dorg.apache.hadoop.security.authentication=simple -Djavax.security.auth.useSubjectCredsOnly=false -Djava.security.auth.login.config=/dev/null -Djava.security.krb5.conf=/dev/null -Dspark.hadoop.hadoop.security.authentication=simple -Dspark.kerberos.keytab=none -Dspark.kerberos.principal=none"
     volumes:
-      - ../q1_realtime_stream_processing/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar:/app/app.jar:ro
-    command: ["java","-jar","/app/app.jar"]
+      - ../q1_realtime_stream_processing/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT-exec.jar:/app/app.jar
+    command: ["java", "-Dhadoop.security.authentication=simple", "-Dorg.apache.hadoop.security.authentication=simple", "-Dspark.hadoop.hadoop.security.authentication=simple", "-Djavax.security.auth.useSubjectCredsOnly=false", "-Djava.security.auth.login.config=/dev/null", "-Djava.security.krb5.conf=/dev/null", "-Dhadoop.home.dir=/", "-DHADOOP_USER_NAME=root", "-Dspark.kerberos.keytab=none", "-Dspark.kerberos.principal=none", "-jar", "/app/app.jar"]
     networks:
-      - bi_network
+      - docker_bi_network
 
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:v0.15.0
@@ -327,7 +330,7 @@ services:
     depends_on:
       - tabularasa_postgres_db
     networks:
-      - bi_network
+      - docker_bi_network
 
 volumes:
   tabularasa_pg_data:
@@ -349,5 +352,5 @@ volumes:
     driver: local
 
 networks:
-  bi_network:
+  docker_bi_network:
     driver: bridge 

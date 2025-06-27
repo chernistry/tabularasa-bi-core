@@ -4,7 +4,6 @@ import sys
 import logging
 import argparse
 from datetime import datetime
-import six.moves  # Add import for six.moves
 from kafka import KafkaProducer
 from kafka.errors import NoBrokersAvailable
 
