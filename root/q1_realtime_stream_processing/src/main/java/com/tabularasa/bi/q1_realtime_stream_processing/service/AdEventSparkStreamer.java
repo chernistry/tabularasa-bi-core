@@ -15,9 +15,8 @@ import org.apache.spark.sql.streaming.StreamingQueryException;
 import org.apache.spark.sql.streaming.Trigger;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.context.annotation.Profile;
 
-import javax.annotation.PostConstruct;
-import javax.annotation.PreDestroy;
 import java.util.concurrent.TimeoutException;
 
 /**
@@ -26,6 +25,7 @@ import java.util.concurrent.TimeoutException;
 @Service
 @Slf4j
 @RequiredArgsConstructor
+@Profile("spark")
 public class AdEventSparkStreamer {
 
     private final SparkSession spark;
@@ -37,18 +37,21 @@ public class AdEventSparkStreamer {
     @Value("${app.kafka.topics.ad-events}")
     private String inputTopic;
 
-    @Value("${spark.streaming.checkpoint-location}")
+    // Default to /tmp/spark_checkpoints if property is not provided
+    @Value("${spark.streaming.checkpoint-location:/tmp/spark_checkpoints}")
     private String checkpointLocation;
 
     private StreamingQuery query;
 
-    @PostConstruct
-    public void init() throws TimeoutException {
-        startStream();
-    }
-
     public void startStream() throws TimeoutException {
         log.info("Initializing Spark Stream from topic [{}] to PostgreSQL", inputTopic);
+
+        // Ensure checkpoint directory exists to prevent runtime errors
+        try {
+            java.nio.file.Files.createDirectories(java.nio.file.Paths.get(checkpointLocation));
+        } catch (java.io.IOException e) {
+            log.warn("Could not create checkpoint directory: {}", checkpointLocation, e);
+        }
 
         Dataset<String> lines = spark
                 .readStream()
@@ -76,7 +79,6 @@ public class AdEventSparkStreamer {
         log.info("Spark streaming query started.");
     }
 
-    @PreDestroy
     public void stopStream() {
         log.info("Stopping Spark streaming query...");
         if (query != null) {

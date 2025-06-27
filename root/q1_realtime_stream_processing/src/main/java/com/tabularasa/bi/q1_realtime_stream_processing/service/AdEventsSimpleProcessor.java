@@ -5,6 +5,7 @@ import com.tabularasa.bi.q1_realtime_stream_processing.model.AggregatedCampaignS
 import com.tabularasa.bi.q1_realtime_stream_processing.repository.AggregatedCampaignStatsRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Profile;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -24,6 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Service
 @Slf4j
 @RequiredArgsConstructor
+@Profile("simple")
 public class AdEventsSimpleProcessor {
 
     private final AggregatedCampaignStatsRepository repository;

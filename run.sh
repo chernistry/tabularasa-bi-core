@@ -6,12 +6,12 @@
 # and managing the application stack.
 #
 # Commands:
-#   prod [--skiptests]  - Launch the main pipeline locally, connecting to Docker services.
-#   test [--onepass]    - Execute the full end-to-end test, spinning up a dedicated test environment.
-#   kill                - Terminate all demo-related processes.
-#   down                - Stop and remove Docker containers and volumes.
-#   dash                - Start the FastAPI dashboard backend.
-#   fix-hadoop          - Manually run the Hadoop user fix for Spark containers.
+#   prod [simple|spark] [--skiptests] - Launch the main pipeline locally.
+#   test [--onepass]                  - Execute the full end-to-end test.
+#   kill                              - Terminate all demo-related processes.
+#   down                              - Stop and remove Docker containers and volumes.
+#   dash                              - Start the FastAPI dashboard backend.
+#   fix-hadoop                        - Manually run the Hadoop user fix for Spark containers.
 #
 # ------------------------------------------------------------------------------
 set -e
@@ -31,10 +31,12 @@ function usage() {
 Usage: ./run.sh <command> [options]
 
 Commands:
-  prod              Launch the main pipeline (Spark + Spring Boot).
-    --skiptests     Skip running tests before starting the application.
-  test              Execute the full end-to-end test harness.
-    --onepass       Run the data producer only once instead of looping.
+  prod [simple|spark] [--skiptests]
+                    Launch the main pipeline. Defaults to 'simple' profile.
+                    --skiptests: Skip Maven tests before starting.
+  test [--onepass]
+                    Execute the full end-to-end test harness.
+                    --onepass: Run the data producer only once instead of looping.
   kill              Terminate demo-related Java, Python, and Spark processes.
   down              Same as 'kill' plus 'docker-compose down -v'.
   dash              Start FastAPI dashboard backend (http://localhost:8000).
@@ -58,8 +60,8 @@ function docker_down() {
   echo "🧹 [INFO] Shutting down and removing Docker stack…"
   kill_processes
   if [ -d "$DOCKER_DIR" ]; then
-    (cd "$DOCKER_DIR" && docker-compose -f docker-compose.yml down -v --remove-orphans)
-    (cd "$DOCKER_DIR" && docker-compose -f docker-compose.test.yml down -v --remove-orphans)
+    (cd "$DOCKER_DIR" && docker-compose -f docker-compose.yml down -v --remove-orphans >/dev/null 2>&1)
+    (cd "$DOCKER_DIR" && docker-compose -f docker-compose.test.yml down -v --remove-orphans >/dev/null 2>&1)
   fi
   echo "✅ [INFO] Docker stack is down."
 }
@@ -94,14 +96,30 @@ function fix_hadoop_user() {
 
 # Run application locally, connecting to services in Docker
 function run_prod() {
-  # Handle --skiptests flag
+  local profile="simple"
   local skip_tests=false
-  if [[ "$1" == "--skiptests" ]]; then
-    skip_tests=true
-  fi
+  for arg in "$@"; do
+    case $arg in
+      simple|spark)
+        profile=$arg
+        ;;
+      --skiptests)
+        skip_tests=true
+        ;;
+    esac
+  done
 
-  # Fix Hadoop user before starting
-  fix_hadoop_user
+  echo "🚀 [PROD] Starting 'prod' mode with profile: '$profile'"
+
+  echo "🐳 [DOCKER] Starting Docker services for prod..."
+  (cd "$DOCKER_DIR" && docker-compose -f docker-compose.yml up -d tabularasa_postgres_db kafka spark-master spark-worker)
+
+  echo "⏳ [WAIT] Waiting for services to initialize..."
+
+  # Fix Hadoop user before starting, especially for spark profile
+  if [[ "$profile" == "spark" ]]; then
+    fix_hadoop_user
+  fi
 
   # Run tests unless skipped
   if [ "$skip_tests" = false ]; then
@@ -113,27 +131,54 @@ function run_prod() {
     echo "⏩ [INFO] Skipping tests as requested."
   fi
 
-  # Setup database schema
-  echo "🐘 [INFO] Checking for PostgreSQL container..."
-  local postgres_container
-  postgres_container=$(docker ps --format '{{.Names}}' | grep -E '^(postgres|tabularasa_postgres_db)$' | head -n 1)
-  if [ -n "$postgres_container" ]; then
-    echo "🛠️ [INFO] Found container '$postgres_container'. Setting up database schema..."
-    docker exec -i "$postgres_container" psql -U tabulauser -d tabularasadb < "$Q1_DIR/ddl/postgres_aggregated_campaign_stats.sql"
-  else
-    echo "⚠️ [WARNING] PostgreSQL container not found. Skipping DB schema setup. Please ensure services are running."
-  fi
+  # Wait for PostgreSQL and setup database schema
+  echo "🐘 [INFO] Waiting for PostgreSQL container..."
+  until docker-compose -f "$DOCKER_DIR/docker-compose.yml" exec -T tabularasa_postgres_db pg_isready -U tabulauser -d tabularasadb >/dev/null 2>&1; do
+      printf '.' && sleep 2
+  done
+  echo "✅ [POSTGRES] DB is ready. Setting up schema..."
+  docker-compose -f "$DOCKER_DIR/docker-compose.yml" exec -T tabularasa_postgres_db psql -U tabulauser -d tabularasadb < "$Q1_DIR/ddl/postgres_aggregated_campaign_stats.sql"
+
+  # Wait for Kafka and create topic
+  echo "📻 [KAFKA] Waiting for Kafka..."
+  until docker-compose -f "$DOCKER_DIR/docker-compose.yml" exec -T kafka kafka-topics.sh --bootstrap-server kafka:9092 --list >/dev/null 2>&1; do
+      printf '.' && sleep 3
+  done
+  echo "✅ [KAFKA] Kafka is ready. Creating topic 'ad-events'..."
+  docker-compose -f "$DOCKER_DIR/docker-compose.yml" exec -T kafka kafka-topics.sh --create --if-not-exists --topic ad-events \
+    --bootstrap-server kafka:9092 --replication-factor 1 --partitions 1
 
   # Build the application JAR
   echo "🔨 [INFO] Building the project (skipping tests)..."
   (cd "$Q1_DIR" && mvn clean package -DskipTests)
 
   # Run the Spring Boot application
-  echo "🚀 [INFO] Running Q1 application..."
-  java -Dspring.datasource.url=jdbc:postgresql://localhost:5432/tabularasadb \
-       -Dspring.kafka.bootstrap-servers=localhost:9092 \
-       -jar "$Q1_DIR/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT-exec.jar" \
-       --spring.config.location="file:$Q1_DIR/src/main/resources/application.properties"
+  echo "🚀 [PROD] Running Q1 application with profile '$profile'..."
+  local spark_master_url="local[*]"
+  if [[ "$profile" == "spark" ]]; then
+      spark_master_url="spark://localhost:7077"
+  fi
+  local hadoop_user
+  hadoop_user=$(whoami)
+  
+  java --add-opens=java.base/java.lang=ALL-UNNAMED \
+       --add-opens=java.base/java.util=ALL-UNNAMED \
+       --add-opens=java.base/java.lang.reflect=ALL-UNNAMED \
+       --add-opens=java.base/sun.nio.ch=ALL-UNNAMED \
+       -Dspring.profiles.active="$profile" \
+       -Dspark.master="$spark_master_url" \
+       -Dspring.datasource.url=jdbc:postgresql://localhost:5432/tabularasadb \
+       -Dspring.kafka.bootstrap-servers=localhost:19092 \
+       -Dapp.kafka.bootstrap-servers=localhost:19092 \
+       -Dhadoop.security.authentication=simple \
+       -Dorg.apache.hadoop.security.authentication=simple \
+       -Dspark.hadoop.hadoop.security.authentication=simple \
+       -Djavax.security.auth.useSubjectCredsOnly=false \
+       -Djava.security.auth.login.config=/dev/null \
+       -Djava.security.krb5.conf=/dev/null \
+       -Djava.security.manager=allow \
+       -DHADOOP_USER_NAME="$hadoop_user" \
+       -jar "$Q1_DIR/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT-exec.jar"
 }
 
 # Run the full end-to-end test suite
@@ -157,7 +202,7 @@ function run_test() {
   # Start docker-compose test environment
   (cd "$DOCKER_DIR" && \
    echo "🧹 [DOCKER] Cleaning up previous run..." && \
-   docker-compose -f docker-compose.test.yml down -v --remove-orphans && \
+   docker-compose -f docker-compose.test.yml down -v --remove-orphans >/dev/null 2>&1 && \
    echo "🐳 [DOCKER] Starting Docker services for test..." && \
    docker-compose -f docker-compose.test.yml up -d)
 
