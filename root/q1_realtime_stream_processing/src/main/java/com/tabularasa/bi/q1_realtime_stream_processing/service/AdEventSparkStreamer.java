@@ -31,6 +31,26 @@ public class AdEventSparkStreamer {
     private final SparkSession spark;
     private final AdEventDBSink adEventDBSink;
 
+    // A static nested class to handle deserialization.
+    // It is serializable and doesn't capture the outer class instance, avoiding serialization issues.
+    private static class AdEventDeserializer implements MapFunction<String, AdEvent> {
+        // ObjectMapper is thread-safe for read operations, so one static instance is efficient.
+        private static final ObjectMapper MAPPER = new ObjectMapper();
+
+        @Override
+        public AdEvent call(String value) {
+            if (value == null) {
+                return null;
+            }
+            try {
+                return MAPPER.readValue(value, AdEvent.class);
+            } catch (Exception e) {
+                // Let the subsequent filter handle nulls from parsing errors.
+                return null;
+            }
+        }
+    }
+
     @Value("${app.kafka.bootstrap-servers}")
     private String kafkaBootstrapServers;
 
@@ -62,10 +82,7 @@ public class AdEventSparkStreamer {
                 .selectExpr("CAST(value AS STRING)")
                 .as(Encoders.STRING());
 
-        Dataset<AdEvent> adEvents = lines.map((MapFunction<String, AdEvent>) value -> {
-            ObjectMapper mapper = new ObjectMapper();
-            return mapper.readValue(value, AdEvent.class);
-        }, Encoders.bean(AdEvent.class));
+        Dataset<AdEvent> adEvents = lines.map(new AdEventDeserializer(), Encoders.bean(AdEvent.class));
 
         Dataset<AdEvent> filteredEvents = adEvents.filter((FilterFunction<AdEvent>) adEvent -> adEvent != null && adEvent.getCampaignId() != null);
 
