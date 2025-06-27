@@ -100,9 +100,24 @@ echo " Postgres is ready. Creating aggregated_campaign_stats table if absent..."
 docker exec -i postgres psql -U tabulauser -d tabularasadb <../q1_realtime_stream_processing/ddl/postgres_aggregated_campaign_stats.sql
 
 # Prepare Kafka topic (KRaft mode)
+echo "📻 Waiting for Kafka to be ready..."
+KAFKA_READY=0
+for i in {1..20}; do
+  if docker exec kafka /opt/bitnami/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list >/dev/null 2>&1; then
+    KAFKA_READY=1
+    break
+  fi
+  printf '⏳'
+  sleep 3
+done
+if [ $KAFKA_READY -eq 0 ]; then
+  echo "\n❌ ERROR: Kafka did not become ready in time."
+  exit 1
+fi
+
 echo "📻 Creating topic 'ad-events' if it does not exist..."
 docker exec kafka /opt/bitnami/kafka/bin/kafka-topics.sh --create --if-not-exists \
-  --bootstrap-server kafka:9093 --replication-factor 1 --partitions 1 \
+  --bootstrap-server kafka:9092 --replication-factor 1 --partitions 1 \
   --topic ad-events
 
 # Launch Python producer in the background
@@ -144,7 +159,7 @@ echo "------------------------------------------------------"
     --conf "spark.hadoop.hadoop.security.authentication=simple" \
     --packages org.postgresql:postgresql:42.7.3 \
     /opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar \
-    "kafka:9093" "ad-events" "jdbc:postgresql://postgres:5432/tabularasadb" "tabulauser" "tabulapass"
+    "kafka:9092" "ad-events" "jdbc:postgresql://postgres:5432/tabularasadb" "tabulauser" "tabulapass"
 ) &
 SPARK_SUBMIT_PID=$!
 
