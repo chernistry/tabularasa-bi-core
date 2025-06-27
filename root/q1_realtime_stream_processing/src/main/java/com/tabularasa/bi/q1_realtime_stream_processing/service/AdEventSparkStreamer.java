@@ -16,6 +16,7 @@ import org.apache.spark.sql.streaming.Trigger;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.context.annotation.Profile;
+import com.tabularasa.bi.q1_realtime_stream_processing.serialization.KryoRegistrator;
 
 import java.util.concurrent.TimeoutException;
 
@@ -29,27 +30,13 @@ import java.util.concurrent.TimeoutException;
 public class AdEventSparkStreamer {
 
     private final SparkSession spark;
-    private final AdEventDBSink adEventDBSink;
 
-    // A static nested class to handle deserialization.
-    // It is serializable and doesn't capture the outer class instance, avoiding serialization issues.
-    private static class AdEventDeserializer implements MapFunction<String, AdEvent> {
-        // ObjectMapper is thread-safe for read operations, so one static instance is efficient.
-        private static final ObjectMapper MAPPER = new ObjectMapper();
-
-        @Override
-        public AdEvent call(String value) {
-            if (value == null) {
-                return null;
-            }
-            try {
-                return MAPPER.readValue(value, AdEvent.class);
-            } catch (Exception e) {
-                // Let the subsequent filter handle nulls from parsing errors.
-                return null;
-            }
-        }
-    }
+    @Value("${spring.datasource.url}")
+    private String dbUrl;
+    @Value("${spring.datasource.username}")
+    private String dbUser;
+    @Value("${spring.datasource.password}")
+    private String dbPassword;
 
     @Value("${app.kafka.bootstrap-servers}")
     private String kafkaBootstrapServers;
@@ -65,14 +52,13 @@ public class AdEventSparkStreamer {
 
     public void startStream() throws TimeoutException {
         log.info("Initializing Spark Stream from topic [{}] to PostgreSQL", inputTopic);
-
-        // Ensure checkpoint directory exists to prevent runtime errors
+        spark.conf().set("spark.serializer", "org.apache.spark.serializer.KryoSerializer");
+        spark.conf().set("spark.kryo.registrator", KryoRegistrator.class.getName());
         try {
             java.nio.file.Files.createDirectories(java.nio.file.Paths.get(checkpointLocation));
         } catch (java.io.IOException e) {
             log.warn("Could not create checkpoint directory: {}", checkpointLocation, e);
         }
-
         Dataset<String> lines = spark
                 .readStream()
                 .format("kafka")
@@ -81,18 +67,22 @@ public class AdEventSparkStreamer {
                 .load()
                 .selectExpr("CAST(value AS STRING)")
                 .as(Encoders.STRING());
-
-        Dataset<AdEvent> adEvents = lines.map(new AdEventDeserializer(), Encoders.bean(AdEvent.class));
-
+        Dataset<AdEvent> adEvents = lines.map(
+            (MapFunction<String, AdEvent>) value -> {
+                if (value == null) return null;
+                try {
+                    return new com.fasterxml.jackson.databind.ObjectMapper().readValue(value, AdEvent.class);
+                } catch (Exception e) {
+                    return null;
+                }
+            }, Encoders.kryo(AdEvent.class));
         Dataset<AdEvent> filteredEvents = adEvents.filter((FilterFunction<AdEvent>) adEvent -> adEvent != null && adEvent.getCampaignId() != null);
-
         query = filteredEvents.writeStream()
-                .foreach(adEventDBSink)
+                .foreach(new AdEventDBSink(dbUrl, dbUser, dbPassword))
                 .outputMode("update")
                 .trigger(Trigger.ProcessingTime("30 seconds"))
                 .option("checkpointLocation", checkpointLocation)
                 .start();
-
         log.info("Spark streaming query started.");
     }
 

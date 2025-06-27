@@ -3,9 +3,7 @@ package com.tabularasa.bi.q1_realtime_stream_processing.db;
 import com.tabularasa.bi.q1_realtime_stream_processing.model.AdEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.spark.sql.ForeachWriter;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import org.springframework.beans.factory.annotation.Autowired;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -21,34 +19,24 @@ import java.sql.Timestamp;
 public class AdEventDBSink extends ForeachWriter<AdEvent> {
 
     private final String driver = "org.postgresql.Driver";
-    
-    @Value("${spring.datasource.url}")
     private String url;
-    
-    @Value("${spring.datasource.username}")
     private String user;
-    
-    @Value("${spring.datasource.password}")
     private String password;
 
     private Connection connection;
     private PreparedStatement statement;
 
     /**
-     * Default constructor for Spring initialization.
+     * Constructor for manual instantiation.
      */
-    @Autowired
-    public AdEventDBSink(
-            @Value("${spring.datasource.url}") String url,
-            @Value("${spring.datasource.username}") String user,
-            @Value("${spring.datasource.password}") String password) {
+    public AdEventDBSink(String url, String user, String password) {
         this.url = url;
         this.user = user;
         this.password = password;
     }
     
+    // No-arg constructor for Spark serialization, though manual instantiation is preferred.
     public AdEventDBSink() {
-        // This constructor is needed for Spark serialization
     }
 
     @Override
