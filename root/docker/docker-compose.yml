@@ -98,7 +98,7 @@ services:
   # ================== SPARK CLUSTER ==================
   # --► Spark master and worker for distributed processing
   spark-master:
-    image: bitnami/spark:3.5
+    image: bitnami/spark:3.5.1
     container_name: spark-master
     ports:
       - "8081:8080"
@@ -120,7 +120,7 @@ services:
       - docker_bi_network
 
   spark-worker:
-    image: bitnami/spark:3.5
+    image: bitnami/spark:3.5.1
     container_name: spark-worker
     depends_on:
       - spark-master

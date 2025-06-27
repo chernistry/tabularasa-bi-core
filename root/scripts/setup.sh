@@ -35,7 +35,7 @@ fi
 source "$ZSHRC"
 
 # 5. Build the project
-PROJECT_DIR="$HOME/IdeaProjects/allthedocs/roles/taboola/tabularasa-bi-core"
+PROJECT_DIR="$HOME/tabularasa-bi-core"
 echo "Switching to project directory and building:"
 cd "$PROJECT_DIR"
 mvn clean package

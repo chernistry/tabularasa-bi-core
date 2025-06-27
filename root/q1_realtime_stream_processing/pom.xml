@@ -18,12 +18,12 @@
     <description>Module for real-time ad event stream processing using Spark and Kafka.</description>
 
     <properties>
-        <java.version>11</java.version>
+        <java.version>17</java.version>
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <maven.compiler.target>${java.version}</maven.compiler.target>
         <testcontainers.version>1.19.8</testcontainers.version>
         <lombok.version>1.18.30</lombok.version>
-        <spark.version>3.5.0</spark.version>
+        <spark.version>3.5.1</spark.version>
         <scala.version>2.12</scala.version>
     </properties>
 
@@ -187,6 +187,8 @@
                                         <exclude>META-INF/*.SF</exclude>
                                         <exclude>META-INF/*.DSA</exclude>
                                         <exclude>META-INF/*.RSA</exclude>
+                                        <exclude>org/apache/spark/**</exclude>
+                                        <exclude>org/apache/kafka/**</exclude>
                                     </excludes>
                                 </filter>
                             </filters>
