@@ -41,6 +41,6 @@ public class AggregatedCampaignStats {
     @Column(name = "total_bid_amount", nullable = false, precision = 19, scale = 4)
     private BigDecimal totalBidAmount;
 
-    @Column(name = "last_updated", nullable = false)
+    @Column(name = "updated_at", nullable = false)
     private LocalDateTime lastUpdated;
 } 

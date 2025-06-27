@@ -33,7 +33,7 @@ public class Q1RealtimeStreamProcessingApplication {
         } catch (Exception e) {
             log.error("Critical error during application startup", e);
             // Optionally, force exit if startup fails critically
-            // System.exit(1);
+            System.exit(1);
         }
     }
 
@@ -43,7 +43,19 @@ public class Q1RealtimeStreamProcessingApplication {
         return args -> {
             log.info("Spark profile is active. Launching Spark streaming job via Spring context.");
             try {
+                log.info("Initializing Spark streaming pipeline...");
                 streamer.startStream();
+                log.info("Spark streaming job successfully launched and running");
+                
+                // Регистрируем shutdown hook для корректного завершения
+                Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                    log.info("Application shutdown detected, stopping Spark streaming job...");
+                    try {
+                        streamer.stopStream();
+                    } catch (Exception e) {
+                        log.error("Error during Spark streaming shutdown", e);
+                    }
+                }));
             } catch (Exception e) {
                 log.error("Failed to start Spark streaming job", e);
                 System.exit(1);
@@ -57,6 +69,16 @@ public class Q1RealtimeStreamProcessingApplication {
         return args -> {
             log.info("Simple profile is active. Initializing Kafka Listener.");
             processor.startProcessing();
+            
+            // Регистрируем shutdown hook для корректного завершения
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                log.info("Application shutdown detected, stopping Kafka event processing...");
+                try {
+                    processor.stopProcessing();
+                } catch (Exception e) {
+                    log.error("Error during Kafka processor shutdown", e);
+                }
+            }));
         };
     }
 }

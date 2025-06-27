@@ -12,6 +12,7 @@
 #   down                              - Stop and remove Docker containers and volumes.
 #   dash                              - Start the FastAPI dashboard backend.
 #   fix-hadoop                        - Manually run the Hadoop user fix for Spark containers.
+#   status                            - Check the status of the pipeline components.
 #
 # ------------------------------------------------------------------------------
 set -e
@@ -22,6 +23,12 @@ ROOT_DIR=$(pwd)
 SCRIPTS_DIR="$ROOT_DIR/root/scripts"
 DOCKER_DIR="$ROOT_DIR/root/docker"
 Q1_DIR="$ROOT_DIR/root/q1_realtime_stream_processing"
+# PID маркер для локального Python-продюсера
+PRODUCER_PID=""
+
+# Kafka connection details
+KAFKA_DOCKER_HOST="kafka:9092"      # внутри Docker-сети
+KAFKA_LOCAL_HOST="localhost:19092"  # с хост-машины
 
 # Fallback Docker config without credential helpers if helper binary is missing
 if ! command -v docker-credential-desktop >/dev/null 2>&1; then
@@ -48,6 +55,7 @@ Commands:
   down              Same as 'kill' plus 'docker-compose down -v'.
   dash              Start FastAPI dashboard backend (http://localhost:8000).
   fix-hadoop        Manually run the Hadoop/Spark user permission fix.
+  status            Check the status of all pipeline components.
   help              Show this help message.
 EOF
 }
@@ -59,6 +67,11 @@ function kill_processes() {
   pkill -f "AdEventSparkStreamer" 2>/dev/null || true
   pkill -f "ad_events_producer.py" 2>/dev/null || true
   pkill -f "uvicorn main:app" 2>/dev/null || true
+  # Завершаем локальный Python-продюсер, если он запущен
+  if [[ -n "$PRODUCER_PID" ]] && ps -p "$PRODUCER_PID" > /dev/null 2>&1; then
+    kill "$PRODUCER_PID" 2>/dev/null || true
+    wait "$PRODUCER_PID" 2>/dev/null || true
+  fi
   echo "✅ [INFO] Processes terminated."
 }
 
@@ -103,6 +116,7 @@ function fix_hadoop_user() {
 
 # Run application locally, connecting to services in Docker
 function run_prod() {
+  trap 'kill_processes; exit' INT TERM EXIT
   local profile="simple"
   local skip_tests=false
   for arg in "$@"; do
@@ -155,6 +169,18 @@ function run_prod() {
   docker-compose -f "$DOCKER_DIR/docker-compose.yml" exec -T kafka kafka-topics.sh --create --if-not-exists --topic ad-events \
     --bootstrap-server kafka:9092 --replication-factor 1 --partitions 1
 
+  # -------------------------------------------------------------------
+  # 🐍  LOCAL PYTHON PRODUCER (runs on host, loops indefinitely)
+  # -------------------------------------------------------------------
+  if false && ! pgrep -f "ad_events_producer.py" >/dev/null 2>&1; then
+    echo "🐍 [PRODUCER] Launching local ad_events_producer.py …"
+    python "$SCRIPTS_DIR/ad_events_producer.py" --broker "$KAFKA_LOCAL_HOST" --loop &
+    PRODUCER_PID=$!
+    echo "✅ [PRODUCER] Started with PID $PRODUCER_PID"
+  else
+    echo "ℹ️  [PRODUCER] ad_events_producer.py already running. Skipping launch."
+  fi
+
   # Build the application JAR
   echo "🔨 [INFO] Building the project (skipping tests)..."
   (cd "$Q1_DIR" && mvn clean package -DskipTests)
@@ -185,8 +211,8 @@ function run_prod() {
        -Dspark.master="$spark_master_url" \
        -Dspark.driver.memory=1g \
        -Dspring.datasource.url=jdbc:postgresql://localhost:5432/tabularasadb \
-       -Dspring.kafka.bootstrap-servers=localhost:19092 \
-       -Dapp.kafka.bootstrap-servers=localhost:19092 \
+       -Dspring.kafka.bootstrap-servers="$KAFKA_LOCAL_HOST" \
+       -Dapp.kafka.bootstrap-servers="$KAFKA_LOCAL_HOST" \
        -Dhadoop.security.authentication=simple \
        -Dorg.apache.hadoop.security.authentication=simple \
        -Dspark.hadoop.hadoop.security.authentication=simple \
@@ -195,7 +221,21 @@ function run_prod() {
        -Djava.security.krb5.conf=/dev/null \
        -Djava.security.manager=allow \
        -DHADOOP_USER_NAME="$hadoop_user" \
-       -jar "$Q1_DIR/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT-exec.jar"
+       -jar "$Q1_DIR/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT-exec.jar" &
+
+      APP_PID=$!
+      echo "🚀 [APP] Java application started with PID $APP_PID"
+      echo "⏳ [APP] Waiting for application to be ready..."
+      until curl -s http://localhost:8083/actuator/health | grep -q '"status":"UP"'; do sleep 1; done
+      echo "✅ [APP] Application is ready. Launching producer..."
+      python "$SCRIPTS_DIR/ad_events_producer.py" --broker "$KAFKA_LOCAL_HOST" --loop &
+      PRODUCER_PID=$!
+      echo "✅ [PRODUCER] Started with PID $PRODUCER_PID"
+
+      wait $APP_PID
+
+  # По завершении приложения останавливаем продюсер
+  kill_processes
 }
 
 # Run the full end-to-end test suite
@@ -315,6 +355,122 @@ function run_dash() {
   exec uvicorn main:app --reload
 }
 
+# Check the status of the pipeline components
+function check_status() {
+  echo "🔍 [STATUS] Checking pipeline components status..."
+  
+  # Check Docker services
+  echo "🐳 [DOCKER] Checking Docker services..."
+  if ! command -v docker &> /dev/null; then
+    echo "❌ [DOCKER] Docker is not available."
+    return 1
+  fi
+  
+  # Check PostgreSQL
+  echo "🐘 [POSTGRES] Checking PostgreSQL..."
+  if docker ps --format '{{.Names}}' | grep -q "tabularasa_postgres_db"; then
+    if docker exec tabularasa_postgres_db pg_isready -U tabulauser -d tabularasadb > /dev/null 2>&1; then
+      echo "✅ [POSTGRES] PostgreSQL is running and accepting connections."
+      
+      # Check if table exists and has data
+      local record_count
+      record_count=$(docker exec tabularasa_postgres_db psql -U tabulauser -d tabularasadb -t -c "SELECT COUNT(*) FROM aggregated_campaign_stats;" 2>/dev/null | xargs)
+      if [[ $? -eq 0 ]]; then
+        echo "📊 [POSTGRES] Found $record_count records in aggregated_campaign_stats table."
+      else
+        echo "⚠️ [POSTGRES] Table 'aggregated_campaign_stats' does not exist or is not accessible."
+      fi
+    else
+      echo "❌ [POSTGRES] PostgreSQL is running but not accepting connections."
+    fi
+  else
+    echo "❌ [POSTGRES] PostgreSQL container is not running."
+  fi
+  
+  # Check Kafka
+  echo "📻 [KAFKA] Checking Kafka..."
+  if docker ps --format '{{.Names}}' | grep -q "kafka"; then
+    if docker exec kafka kafka-topics.sh --bootstrap-server kafka:9092 --list > /dev/null 2>&1; then
+      echo "✅ [KAFKA] Kafka is running and accepting connections."
+      
+      # Check if topic exists
+      if docker exec kafka kafka-topics.sh --bootstrap-server kafka:9092 --list | grep -q "ad-events"; then
+        echo "✅ [KAFKA] Topic 'ad-events' exists."
+        
+        # Get message count in topic
+        local message_count
+        message_count=$(docker exec kafka kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list kafka:9092 --topic ad-events --time -1 2>/dev/null | awk -F ":" '{sum += $3} END {print sum}')
+        if [[ $? -eq 0 ]]; then
+          echo "📊 [KAFKA] Topic 'ad-events' has approximately $message_count messages."
+        else
+          echo "⚠️ [KAFKA] Could not get message count for topic 'ad-events'."
+        fi
+      else
+        echo "❌ [KAFKA] Topic 'ad-events' does not exist."
+      fi
+    else
+      echo "❌ [KAFKA] Kafka is running but not accepting connections."
+    fi
+  else
+    echo "❌ [KAFKA] Kafka container is not running."
+  fi
+  
+  # Check Spark
+  echo "🔥 [SPARK] Checking Spark..."
+  if docker ps --format '{{.Names}}' | grep -q "spark-master"; then
+    echo "✅ [SPARK] Spark master is running."
+    if docker ps --format '{{.Names}}' | grep -q "spark-worker"; then
+      echo "✅ [SPARK] Spark worker is running."
+    else
+      echo "❌ [SPARK] Spark worker is not running."
+    fi
+  else
+    echo "❌ [SPARK] Spark master is not running."
+  fi
+  
+  # Check application
+  echo "🚀 [APP] Checking application status..."
+  if pgrep -f "q1_realtime_stream_processing.*.jar" > /dev/null; then
+    echo "✅ [APP] Application is running."
+    
+    # Check application health via actuator
+    if curl -s http://localhost:8083/actuator/health > /dev/null 2>&1; then
+      local app_health
+      app_health=$(curl -s http://localhost:8083/actuator/health | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+      echo "🩺 [APP] Application health status: $app_health"
+      
+      # Check metrics
+      if curl -s http://localhost:8083/actuator/metrics/app.events.processed > /dev/null 2>&1; then
+        local processed_events
+        processed_events=$(curl -s http://localhost:8083/actuator/metrics/app.events.processed | grep -o '"value":[0-9.]*' | cut -d':' -f2)
+        echo "📊 [APP] Processed events: $processed_events"
+      fi
+    else
+      echo "⚠️ [APP] Application is running but actuator endpoints are not accessible."
+    fi
+  else
+    echo "❌ [APP] Application is not running."
+  fi
+  
+  # Check data producer
+  echo "🐍 [PRODUCER] Checking data producer..."
+  if pgrep -f "ad_events_producer.py" > /dev/null; then
+    echo "✅ [PRODUCER] Data producer is running."
+  else
+    echo "❌ [PRODUCER] Data producer is not running."
+  fi
+  
+  # Check if we need to start data producer
+  if [[ "$1" == "--start-producer" ]]; then
+    if ! pgrep -f "ad_events_producer.py" > /dev/null; then
+      echo "🚀 [PRODUCER] Starting data producer..."
+      (cd "$SCRIPTS_DIR" && python ad_events_producer.py --broker localhost:19092 --loop) &
+      echo "✅ [PRODUCER] Data producer started."
+    fi
+  fi
+  
+  echo "✅ [STATUS] Status check complete."
+}
 
 # --- SCRIPT ENTRYPOINT ---
 
@@ -336,6 +492,9 @@ case "$1" in
     ;;
   fix-hadoop)
     fix_hadoop_user
+    ;;
+  status|check)
+    check_status "${@:2}"
     ;;
   ""|help|-h|--help)
     usage
