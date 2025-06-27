@@ -52,8 +52,6 @@ public class AdEventSparkStreamer {
 
     public void startStream() throws TimeoutException {
         log.info("Initializing Spark Stream from topic [{}] to PostgreSQL", inputTopic);
-        spark.conf().set("spark.serializer", "org.apache.spark.serializer.KryoSerializer");
-        spark.conf().set("spark.kryo.registrator", KryoRegistrator.class.getName());
         try {
             java.nio.file.Files.createDirectories(java.nio.file.Paths.get(checkpointLocation));
         } catch (java.io.IOException e) {

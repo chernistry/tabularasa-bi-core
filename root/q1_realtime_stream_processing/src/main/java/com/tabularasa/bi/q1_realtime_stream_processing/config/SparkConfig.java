@@ -21,6 +21,8 @@ public class SparkConfig {
         return SparkSession.builder()
                 .appName(appName)
                 .master(master)
+                .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+                .config("spark.kryo.registrator", com.tabularasa.bi.q1_realtime_stream_processing.serialization.KryoRegistrator.class.getName())
                 .getOrCreate();
     }
 }

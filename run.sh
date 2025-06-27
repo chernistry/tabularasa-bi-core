@@ -165,6 +165,8 @@ function run_prod() {
        --add-opens=java.base/java.util=ALL-UNNAMED \
        --add-opens=java.base/java.lang.reflect=ALL-UNNAMED \
        --add-opens=java.base/sun.nio.ch=ALL-UNNAMED \
+       --add-opens=java.base/java.nio=ALL-UNNAMED \
+       --add-opens=java.base/java.lang.invoke=ALL-UNNAMED \
        -Dspring.profiles.active="$profile" \
        -Dspark.master="$spark_master_url" \
        -Dspring.datasource.url=jdbc:postgresql://localhost:5432/tabularasadb \
