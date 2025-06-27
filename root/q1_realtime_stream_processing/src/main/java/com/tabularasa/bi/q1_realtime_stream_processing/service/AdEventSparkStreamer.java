@@ -50,7 +50,7 @@ public class AdEventSparkStreamer {
 
     private StreamingQuery query;
 
-    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON_MAPPER = new com.fasterxml.jackson.databind.ObjectMapper();
 
     public void startStream() throws TimeoutException {
         log.info("Initializing Spark Stream from topic [{}] to PostgreSQL", inputTopic);
@@ -75,7 +75,7 @@ public class AdEventSparkStreamer {
                 } catch (Exception e) {
                     return null;
                 }
-            }, Encoders.kryo(AdEvent.class));
+            }, Encoders.bean(AdEvent.class));
         Dataset<AdEvent> filteredEvents = adEvents.filter(
                 (FilterFunction<AdEvent>) adEvent -> adEvent != null && adEvent.getCampaignId() != null);
 
@@ -86,6 +86,7 @@ public class AdEventSparkStreamer {
                 .foreachBatch((batchDS, batchId) -> {
                     org.apache.spark.sql.Dataset<org.apache.spark.sql.Row> dbReady = batchDS.toDF()
                             .selectExpr(
+                                    "campaignId as campaign_id",
                                     "eventId as event_id",
                                     "adCreativeId as ad_creative_id",
                                     "userId as user_id",
