@@ -24,28 +24,27 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.Statement;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.io.InputStream;
 import java.io.IOException;
-import java.util.Map;
 import java.util.Properties;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@SuppressWarnings({"resource", "deprecation"})
 public class Q1E2eFatJarTest {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Q1E2eFatJarTest.class);
     private static Network network = Network.newNetwork();
 
     @Container
+    @SuppressWarnings({"resource", "deprecation"})
     private static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:14.11-alpine")
             .withDatabaseName("tabularasadb")
             .withUsername("tabulauser")
@@ -54,11 +53,13 @@ public class Q1E2eFatJarTest {
             .withNetworkAliases("postgres");
 
     @Container
+    @SuppressWarnings({"resource", "deprecation"})
     private static KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.5.0"))
             .withNetwork(network)
             .withNetworkAliases("kafka");
 
     @Container
+    @SuppressWarnings("resource")
     private static GenericContainer<?> sparkMaster = new GenericContainer<>(DockerImageName.parse("bitnami/spark:3.5"))
             .withExposedPorts(7077, 8080)
             .withEnv("SPARK_MODE", "master")
@@ -69,6 +70,7 @@ public class Q1E2eFatJarTest {
             .withEnv("USER_HOME", "/tmp");
 
     @Container
+    @SuppressWarnings("resource")
     private static GenericContainer<?> sparkWorker = new GenericContainer<>(DockerImageName.parse("bitnami/spark:3.5"))
             .withExposedPorts(8081)
             .withEnv("SPARK_MODE", "worker")
@@ -103,6 +105,7 @@ public class Q1E2eFatJarTest {
 
             // Set the JDBC URL, Kafka bootstrap servers, and Spark master URL dynamically
             System.setProperty("POSTGRES_URL", postgres.getJdbcUrl());
+            //noinspection deprecation
             System.setProperty("KAFKA_BOOTSTRAP_SERVERS", kafka.getBootstrapServers());
             System.setProperty("SPARK_MASTER_URL", "spark://" + sparkMaster.getHost() + ":" + sparkMaster.getMappedPort(7077));
 
@@ -355,6 +358,7 @@ public class Q1E2eFatJarTest {
      */
     private Properties producerConfig() {
         Properties props = new Properties();
+        //noinspection deprecation
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());
         props.put(ProducerConfig.CLIENT_ID_CONFIG, "test-producer");
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer");

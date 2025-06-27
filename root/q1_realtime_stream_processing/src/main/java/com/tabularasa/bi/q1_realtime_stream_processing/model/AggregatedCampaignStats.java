@@ -2,7 +2,7 @@ package com.tabularasa.bi.q1_realtime_stream_processing.model;
 
 import lombok.*;
 
-import javax.persistence.*;
+import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 

@@ -62,6 +62,14 @@ services:
       - "19092:19092"
     environment:
       - ALLOW_PLAINTEXT_LISTENER=yes
+      # TLS/SASL placeholders:
+      # - KAFKA_CFG_SSL_KEYSTORE_FILENAME=keystore.jks
+      # - KAFKA_CFG_SSL_KEYSTORE_CREDENTIALS=password
+      # - KAFKA_CFG_SSL_KEY_CREDENTIALS=password
+      # - KAFKA_CFG_SSL_TRUSTSTORE_FILENAME=truststore.jks
+      # - KAFKA_CFG_SSL_TRUSTSTORE_CREDENTIALS=password
+      # - KAFKA_CFG_SASL_ENABLED_MECHANISMS=PLAIN
+      # - KAFKA_CFG_SASL_MECHANISM_INTER_BROKER_PROTOCOL=PLAIN
       - KAFKA_CFG_NODE_ID=1
       - KAFKA_CFG_PROCESS_ROLES=broker,controller
       - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@localhost:9094
@@ -117,6 +125,7 @@ services:
       - ./spark_apps:/opt/spark_apps
       - ./spark_data:/opt/spark_data
       - ./spark_apps/conf/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf:ro
+      - ../q1_realtime_stream_processing/src/main/resources/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf:ro
     networks:
       - docker_bi_network
 
@@ -143,6 +152,7 @@ services:
       - ./spark_apps:/opt/spark_apps
       - ./spark_data:/opt/spark_data
       - ./spark_apps/conf/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf:ro
+      - ../q1_realtime_stream_processing/src/main/resources/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf:ro
     networks:
       - docker_bi_network
 
@@ -317,6 +327,9 @@ services:
       - HADOOP_USER_NAME=root
       - HADOOP_HOME=/opt/hadoop
       - JAVA_OPTS="-Xms512m -Xmx1g -Dhadoop.security.authentication=simple -Dorg.apache.hadoop.security.authentication=simple -Djavax.security.auth.useSubjectCredsOnly=false -Djava.security.auth.login.config=/dev/null -Djava.security.krb5.conf=/dev/null -Dspark.hadoop.hadoop.security.authentication=simple -Dspark.kerberos.keytab=none -Dspark.kerberos.principal=none"
+      - MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,info,metrics
+      - MANAGEMENT_SECURITY_ENABLED=true
+      - MANAGEMENT_SECURITY_ROLES=ACTUATOR
     volumes:
       - ../q1_realtime_stream_processing/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT-exec.jar:/app/app.jar
     command: ["java", "-Dhadoop.security.authentication=simple", "-Dorg.apache.hadoop.security.authentication=simple", "-Dspark.hadoop.hadoop.security.authentication=simple", "-Djavax.security.auth.useSubjectCredsOnly=false", "-Djava.security.auth.login.config=/dev/null", "-Djava.security.krb5.conf=/dev/null", "-Dhadoop.home.dir=/", "-DHADOOP_USER_NAME=root", "-Dspark.kerberos.keytab=none", "-Dspark.kerberos.principal=none", "-jar", "/app/app.jar"]

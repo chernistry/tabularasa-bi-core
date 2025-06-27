@@ -10,13 +10,15 @@ import org.springframework.context.annotation.Profile;
 @Profile("spark")
 public class SparkConfig {
 
-    @Value("${spark.app.name}")
+    // Only for local/test profile. For cluster, use spark-submit and external config.
+    @Value("${spark.app.name:Q1RealtimeStreamProcessing}")
     private String appName;
 
-    @Value("${spark.master}")
+    @Value("${spark.master:local[*]}")
     private String master;
 
     @Bean
+    @Profile("local")
     public SparkSession sparkSession() {
         return SparkSession.builder()
                 .appName(appName)

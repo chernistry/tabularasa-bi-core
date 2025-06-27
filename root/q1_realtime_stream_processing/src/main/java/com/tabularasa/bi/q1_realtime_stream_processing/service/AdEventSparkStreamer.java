@@ -1,22 +1,19 @@
 package com.tabularasa.bi.q1_realtime_stream_processing.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.tabularasa.bi.q1_realtime_stream_processing.db.AdEventDBSink;
 import com.tabularasa.bi.q1_realtime_stream_processing.model.AdEvent;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.spark.api.java.function.FilterFunction;
 import org.apache.spark.api.java.function.MapFunction;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.streaming.StreamingQuery;
-import org.apache.spark.sql.streaming.StreamingQueryException;
 import org.apache.spark.sql.streaming.Trigger;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.context.annotation.Profile;
-import com.tabularasa.bi.q1_realtime_stream_processing.serialization.KryoRegistrator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.TimeoutException;
 
@@ -24,12 +21,12 @@ import java.util.concurrent.TimeoutException;
  * Service for processing ad events using Spark Structured Streaming.
  */
 @Service
-@Slf4j
-@RequiredArgsConstructor
 @Profile("spark")
 public class AdEventSparkStreamer {
 
+    // For test/local only: inject SparkSession. For prod/cluster use static main or factory.
     private final SparkSession spark;
+    private static final Logger log = LoggerFactory.getLogger(AdEventSparkStreamer.class);
 
     @Value("${spring.datasource.url}")
     private String dbUrl;
@@ -50,7 +47,12 @@ public class AdEventSparkStreamer {
 
     private StreamingQuery query;
 
-    private static final com.fasterxml.jackson.databind.ObjectMapper JSON_MAPPER = new com.fasterxml.jackson.databind.ObjectMapper();
+    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
+
+    // Явный конструктор вместо Lombok
+    public AdEventSparkStreamer(SparkSession spark) {
+        this.spark = spark;
+    }
 
     public void startStream() throws TimeoutException {
         log.info("Initializing Spark Stream from topic [{}] to PostgreSQL", inputTopic);
@@ -69,10 +71,11 @@ public class AdEventSparkStreamer {
                 .as(Encoders.STRING());
         Dataset<AdEvent> adEvents = lines.map(
             (MapFunction<String, AdEvent>) value -> {
-                if (value == null) return null;
+                if (value == null || value.isBlank()) return null;
                 try {
                     return JSON_MAPPER.readValue(value, AdEvent.class);
                 } catch (Exception e) {
+                    log.warn("Invalid JSON: {}", value, e);
                     return null;
                 }
             }, Encoders.bean(AdEvent.class));
@@ -91,7 +94,7 @@ public class AdEventSparkStreamer {
                                     "adCreativeId as ad_creative_id",
                                     "userId as user_id",
                                     "eventType as event_type",
-                                    "timestamp",
+                                    "CAST(timestamp AS TIMESTAMP) as timestamp",
                                     "bidAmountUsd as bid_amount_usd");
 
                     dbReady.write()
