@@ -50,6 +50,8 @@ public class AdEventSparkStreamer {
 
     private StreamingQuery query;
 
+    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
+
     public void startStream() throws TimeoutException {
         log.info("Initializing Spark Stream from topic [{}] to PostgreSQL", inputTopic);
         try {
@@ -69,14 +71,38 @@ public class AdEventSparkStreamer {
             (MapFunction<String, AdEvent>) value -> {
                 if (value == null) return null;
                 try {
-                    return new com.fasterxml.jackson.databind.ObjectMapper().readValue(value, AdEvent.class);
+                    return JSON_MAPPER.readValue(value, AdEvent.class);
                 } catch (Exception e) {
                     return null;
                 }
             }, Encoders.kryo(AdEvent.class));
-        Dataset<AdEvent> filteredEvents = adEvents.filter((FilterFunction<AdEvent>) adEvent -> adEvent != null && adEvent.getCampaignId() != null);
+        Dataset<AdEvent> filteredEvents = adEvents.filter(
+                (FilterFunction<AdEvent>) adEvent -> adEvent != null && adEvent.getCampaignId() != null);
+
+        // Use foreachBatch to perform bulk JDBC writes on the driver side. This avoids serializing a custom
+        // ForeachWriter to executors, eliminating java.lang.IllegalStateException: unread block data errors that
+        // occur when Spark attempts to deserialize complex writer instances across JVM versions.
         query = filteredEvents.writeStream()
-                .foreach(new AdEventDBSink(dbUrl, dbUser, dbPassword))
+                .foreachBatch((batchDS, batchId) -> {
+                    org.apache.spark.sql.Dataset<org.apache.spark.sql.Row> dbReady = batchDS.toDF()
+                            .selectExpr(
+                                    "eventId as event_id",
+                                    "adCreativeId as ad_creative_id",
+                                    "userId as user_id",
+                                    "eventType as event_type",
+                                    "timestamp",
+                                    "bidAmountUsd as bid_amount_usd");
+
+                    dbReady.write()
+                            .format("jdbc")
+                            .option("url", dbUrl)
+                            .option("driver", "org.postgresql.Driver")
+                            .option("dbtable", "ad_events")
+                            .option("user", dbUser)
+                            .option("password", dbPassword)
+                            .mode("append")
+                            .save();
+                })
                 .outputMode("update")
                 .trigger(Trigger.ProcessingTime("30 seconds"))
                 .option("checkpointLocation", checkpointLocation)

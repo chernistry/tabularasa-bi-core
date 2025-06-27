@@ -116,6 +116,7 @@ services:
     volumes:
       - ./spark_apps:/opt/spark_apps
       - ./spark_data:/opt/spark_data
+      - ./spark_apps/conf/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf:ro
     networks:
       - docker_bi_network
 
@@ -141,6 +142,7 @@ services:
     volumes:
       - ./spark_apps:/opt/spark_apps
       - ./spark_data:/opt/spark_data
+      - ./spark_apps/conf/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf:ro
     networks:
       - docker_bi_network
 

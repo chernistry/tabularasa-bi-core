@@ -23,6 +23,13 @@ SCRIPTS_DIR="$ROOT_DIR/root/scripts"
 DOCKER_DIR="$ROOT_DIR/root/docker"
 Q1_DIR="$ROOT_DIR/root/q1_realtime_stream_processing"
 
+# Fallback Docker config without credential helpers if helper binary is missing
+if ! command -v docker-credential-desktop >/dev/null 2>&1; then
+  export DOCKER_CONFIG="$ROOT_DIR/.docker_nocreds"
+  mkdir -p "$DOCKER_CONFIG"
+  echo '{}' > "$DOCKER_CONFIG/config.json"
+fi
+
 # --- UTILITY FUNCTIONS ---
 
 # Print usage information
@@ -152,6 +159,22 @@ function run_prod() {
   echo "🔨 [INFO] Building the project (skipping tests)..."
   (cd "$Q1_DIR" && mvn clean package -DskipTests)
 
+  # Copy JAR to Spark apps directory for cluster submissions
+  if [[ "$profile" == "spark" ]]; then
+    local spark_apps_dir="$DOCKER_DIR/spark_apps"
+    mkdir -p "$spark_apps_dir"
+    cp -f "$Q1_DIR/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar" "$spark_apps_dir/" || true
+  fi
+
+  # Prefer Java 17 runtime – Spark 3.5 is only certified up to Java 17. Newer JVMs (e.g. 23) cause
+  # deserialization errors like "unread block data" seen in logs. We attempt to locate a JDK 17 binary
+  # via /usr/libexec/java_home (macOS) or fallback to `java` on PATH.
+  local java_cmd
+  if command -v /usr/libexec/java_home >/dev/null 2>&1; then
+    java_cmd="$(/usr/libexec/java_home -v 17 2>/dev/null)/bin/java"
+  fi
+  [[ -x "$java_cmd" ]] || java_cmd=$(command -v java)
+
   # Run the Spring Boot application
   echo "🚀 [PROD] Running Q1 application with profile '$profile'..."
   local spark_master_url="local[*]"
@@ -161,7 +184,7 @@ function run_prod() {
   local hadoop_user
   hadoop_user=$(whoami)
   
-  java --add-opens=java.base/java.lang=ALL-UNNAMED \
+  "$java_cmd" --add-opens=java.base/java.lang=ALL-UNNAMED \
        --add-opens=java.base/java.util=ALL-UNNAMED \
        --add-opens=java.base/java.lang.reflect=ALL-UNNAMED \
        --add-opens=java.base/sun.nio.ch=ALL-UNNAMED \
