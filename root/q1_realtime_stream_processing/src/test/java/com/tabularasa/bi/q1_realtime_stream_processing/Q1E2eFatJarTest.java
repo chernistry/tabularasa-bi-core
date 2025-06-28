@@ -247,7 +247,7 @@ public class Q1E2eFatJarTest {
                 "/opt/bitnami/spark/bin/spark-submit --verbose " +
                 "--class com.tabularasa.bi.q1_realtime_stream_processing.spark.AdEventSparkStreamer " +
                 "--master spark://spark-master:7077 " +
-                "--conf spark.driver.extraJavaOptions=\"-Dlog4j.configuration=log4j-debug.properties -Dhadoop.security.authentication=simple -Djavax.security.auth.useSubjectCredsOnly=false -Djava.security.krb5.conf=/dev/null --add-opens=java.base/java.nio=ALL-UNNAMED\" " +
+                "--conf spark.driver.extraJavaOptions=\"-Dlog4j2.configurationFile=log4j2.xml -Dhadoop.security.authentication=simple -Djavax.security.auth.useSubjectCredsOnly=false -Djava.security.krb5.conf=/dev/null --add-opens=java.base/java.nio=ALL-UNNAMED\" " +
                 "--conf spark.executor.extraJavaOptions=\"--add-opens=java.base/java.nio=ALL-UNNAMED\" " +
                 "--conf spark.hadoop.fs.defaultFS=file:/// " +
                 "--conf spark.hadoop.hadoop.security.authentication=simple " +

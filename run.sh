@@ -116,7 +116,9 @@ function fix_hadoop_user() {
 
 # Run application locally, connecting to services in Docker
 function run_prod() {
-  trap 'kill_processes; exit' INT TERM EXIT
+  # Ensure no stale processes are holding the application port (e.g., 8083)
+  kill_processes
+  trap 'kill_processes; exit' INT TERM
   local profile="simple"
   local skip_tests=false
   for arg in "$@"; do
