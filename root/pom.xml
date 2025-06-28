@@ -23,7 +23,7 @@
         <java.version>17</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <spark.version>3.5.6</spark.version>
+        <spark.version>3.5.1</spark.version>
         <scala.binary.version>2.12</scala.binary.version>
         <spring-boot.version>3.4.7</spring-boot.version>
         <spring-kafka.version>3.3.7</spring-kafka.version>
@@ -116,11 +116,13 @@
                     </exclusion>
                 </exclusions>
             </dependency>
+            <!--
             <dependency>
                 <groupId>org.apache.kafka</groupId>
                 <artifactId>kafka-clients</artifactId>
                 <version>3.4.1</version>
             </dependency>
+            -->
 
             <!-- Databases -->
             <dependency>
