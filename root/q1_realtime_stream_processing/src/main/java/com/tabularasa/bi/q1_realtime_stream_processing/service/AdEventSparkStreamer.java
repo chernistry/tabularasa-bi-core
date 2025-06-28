@@ -25,6 +25,7 @@ import io.opentelemetry.api.trace.Tracer;
 import org.springframework.beans.factory.annotation.Autowired;
 import jakarta.annotation.PreDestroy;
 
+import javax.sql.DataSource;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -34,8 +35,13 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import org.apache.commons.dbcp2.BasicDataSource;
 
 /**
  * Service for processing ad events using Spark Core API.
@@ -53,6 +59,7 @@ public class AdEventSparkStreamer {
     private final Timer batchProcessingTimer;
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
     private StreamingQuery streamingQuery;
+    private final BasicDataSource dataSource;
 
     @Value("${spring.datasource.url}")
     private String dbUrl;
@@ -82,6 +89,22 @@ public class AdEventSparkStreamer {
         this.processedEventsCounter = meterRegistry.counter("app.events.processed", "type", "ad_event");
         this.failedEventsCounter = meterRegistry.counter("app.events.failed", "type", "ad_event");
         this.batchProcessingTimer = meterRegistry.timer("app.events.batch.processing.time", "type", "ad_event");
+        
+        // Инициализируем connection pool
+        this.dataSource = new BasicDataSource();
+        this.dataSource.setDriverClassName(POSTGRES_DRIVER);
+        this.dataSource.setUrl(dbUrl);
+        this.dataSource.setUsername(dbUser);
+        this.dataSource.setPassword(dbPassword);
+        this.dataSource.setInitialSize(5);
+        this.dataSource.setMaxTotal(20);
+        this.dataSource.setMaxIdle(10);
+        this.dataSource.setMinIdle(5);
+        this.dataSource.setMaxWaitMillis(30000);
+        this.dataSource.setValidationQuery("SELECT 1");
+        this.dataSource.setTestOnBorrow(true);
+        this.dataSource.setTestWhileIdle(true);
+        this.dataSource.setTimeBetweenEvictionRunsMillis(60000);
     }
 
     public void startStream() throws TimeoutException {
@@ -101,7 +124,7 @@ public class AdEventSparkStreamer {
                     .add("user_id", DataTypes.StringType)
                     .add("bid_amount_usd", DataTypes.DoubleType);
                 
-                // Создаем стрим из Kafka
+                // Создаем стрим из Kafka с дополнительными настройками
                 Dataset<Row> kafkaStream = sparkSession
                     .readStream()
                     .format("kafka")
@@ -109,6 +132,9 @@ public class AdEventSparkStreamer {
                     .option("subscribe", inputTopic)
                     .option("startingOffsets", "earliest")
                     .option("failOnDataLoss", "false")
+                    .option("maxOffsetsPerTrigger", "10000")
+                    .option("kafka.fetch.message.max.bytes", "10485760")
+                    .option("kafka.max.partition.fetch.bytes", "10485760")
                     .load();
                 
                 // Извлекаем JSON из Kafka и парсим его
@@ -116,12 +142,13 @@ public class AdEventSparkStreamer {
                     .selectExpr("CAST(value AS STRING) as json")
                     .select(functions.from_json(functions.col("json"), schema).as("data"))
                     .select("data.*")
-                    .filter(functions.col("campaign_id").isNotNull());
+                    .filter(functions.col("campaign_id").isNotNull())
+                    .repartition(sparkSession.sparkContext().defaultParallelism());
                 
                 // Регистрируем временную таблицу для SQL-запросов
                 jsonStream.createOrReplaceTempView("ad_events");
                 
-                // Агрегируем данные по campaign_id и event_type
+                // Агрегируем данные по campaign_id и event_type с checkpointing
                 Dataset<Row> aggregatedData = jsonStream
                     .withWatermark("timestamp", "1 minute")
                     .groupBy(
@@ -132,74 +159,40 @@ public class AdEventSparkStreamer {
                     .agg(
                         functions.count("*").as("event_count"),
                         functions.sum("bid_amount_usd").as("total_bid_amount")
-                    );
+                    )
+                    .withColumn("processing_time", functions.current_timestamp());
                 
-                // Функция для записи каждого батча в PostgreSQL
+                // Используем foreachBatch с оптимизированным пулом соединений
                 this.streamingQuery = aggregatedData
                     .writeStream()
                     .outputMode(OutputMode.Update())
                     .foreachBatch((batchDF, batchId) -> {
+                        Timer.Sample sample = Timer.start();
                         log.info("Processing batch ID: {}", batchId);
                         if (batchDF.isEmpty()) {
                             log.info("Batch {} is empty, skipping.", batchId);
                             return;
                         }
 
+                        // Кэшируем данные для повторного использования
                         batchDF.persist();
                         
                         long totalEventsInBatch = 0;
                         try {
                              totalEventsInBatch = batchDF.selectExpr("sum(event_count)").first().getLong(0);
+                             log.info("Batch {} contains {} events", batchId, totalEventsInBatch);
                         } catch (Exception e) {
                             log.warn("Could not calculate total events in batch, maybe it was empty.", e);
                         }
                         
                         processedEventsCounter.increment(totalEventsInBatch);
                         
-                        final String url = dbUrl;
-                        final String user = dbUser;
-                        final String pwd = dbPassword;
-
+                        // Используем общий пул соединений, а не создаем новое соединение для каждой партиции
                         try {
-                            batchDF.foreachPartition(partition -> {
-                                try (Connection connection = DriverManager.getConnection(url, user, pwd)) {
-                                    Class.forName(POSTGRES_DRIVER);
-                                    String insertSql =
-                                        "INSERT INTO aggregated_campaign_stats " +
-                                        "(campaign_id, event_type, window_start_time, event_count, total_bid_amount, updated_at) " +
-                                        "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP) " +
-                                        "ON CONFLICT (campaign_id, event_type, window_start_time) DO UPDATE " +
-                                        "SET event_count = aggregated_campaign_stats.event_count + EXCLUDED.event_count, " +
-                                        "total_bid_amount = aggregated_campaign_stats.total_bid_amount + EXCLUDED.total_bid_amount, " +
-                                        "updated_at = CURRENT_TIMESTAMP";
-
-                                    try (PreparedStatement statement = connection.prepareStatement(insertSql)) {
-                                        int batchSize = 0;
-                                        while (partition.hasNext()) {
-                                            Row row = partition.next();
-                                            Row window = row.getAs("window");
-                                            statement.setString(1, row.getAs("campaign_id"));
-                                            statement.setString(2, row.getAs("event_type"));
-                                            statement.setTimestamp(3, window.getAs("start"));
-                                            statement.setLong(4, row.getAs("event_count"));
-                                            statement.setBigDecimal(5, row.getAs("total_bid_amount"));
-                                            statement.addBatch();
-                                            batchSize++;
-                                            if (batchSize % 1000 == 0) {
-                                                statement.executeBatch();
-                                                statement.clearBatch();
-                                            }
-                                        }
-                                        statement.executeBatch();
-                                    }
-                                } catch (Exception e) {
-                                    System.err.println("Failed to write partition to database: " + e.getMessage());
-                                    e.printStackTrace(System.err);
-                                    throw new RuntimeException(e);
-                                }
-                            });
+                            processBatchWithConnectionPool(batchDF);
                         } finally {
                             batchDF.unpersist();
+                            sample.stop(batchProcessingTimer);
                         }
                     })
                     .option("checkpointLocation", checkpointLocation)
@@ -219,6 +212,77 @@ public class AdEventSparkStreamer {
         }
     }
     
+    /**
+     * Обрабатывает пакет данных с использованием пула соединений для улучшения производительности.
+     *
+     * @param batchDF Набор данных для обработки
+     */
+    private void processBatchWithConnectionPool(Dataset<Row> batchDF) {
+        // Создаем cached dataset для эффективной параллельной обработки
+        Dataset<Row> cachedDF = batchDF.coalesce(4).cache();
+        
+        // Готовим SQL запрос для вставки/обновления
+        final String insertSql =
+            "INSERT INTO aggregated_campaign_stats " +
+            "(campaign_id, event_type, window_start_time, event_count, total_bid_amount, updated_at) " +
+            "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP) " +
+            "ON CONFLICT (campaign_id, event_type, window_start_time) DO UPDATE " +
+            "SET event_count = aggregated_campaign_stats.event_count + EXCLUDED.event_count, " +
+            "total_bid_amount = aggregated_campaign_stats.total_bid_amount + EXCLUDED.total_bid_amount, " +
+            "updated_at = CURRENT_TIMESTAMP";
+        
+        try {
+            // Используем foreachPartition для пакетной обработки с пулом соединений
+            cachedDF.foreachPartition(partition -> {
+                // Используем соединение из пула для всей партиции
+                try (Connection connection = dataSource.getConnection();
+                     PreparedStatement statement = connection.prepareStatement(insertSql)) {
+                    
+                    connection.setAutoCommit(false);
+                    int batchSize = 0;
+                    int totalRows = 0;
+                    
+                    while (partition.hasNext()) {
+                        Row row = partition.next();
+                        Row window = row.getAs("window");
+                        statement.setString(1, row.getAs("campaign_id"));
+                        statement.setString(2, row.getAs("event_type"));
+                        statement.setTimestamp(3, window.getAs("start"));
+                        statement.setLong(4, row.getAs("event_count"));
+                        statement.setBigDecimal(5, row.getAs("total_bid_amount"));
+                        statement.addBatch();
+                        batchSize++;
+                        totalRows++;
+                        
+                        // Выполняем пакет запросов каждые 1000 строк
+                        if (batchSize >= 1000) {
+                            statement.executeBatch();
+                            connection.commit();
+                            statement.clearBatch();
+                            batchSize = 0;
+                        }
+                    }
+                    
+                    // Выполняем оставшиеся операции в пакете
+                    if (batchSize > 0) {
+                        statement.executeBatch();
+                        connection.commit();
+                    }
+                    
+                    log.debug("Processed {} rows in partition", totalRows);
+                } catch (SQLException e) {
+                    log.error("Failed to write partition to database", e);
+                    failedEventsCounter.increment();
+                    throw new RuntimeException("Database error while processing partition", e);
+                }
+            });
+            
+        } finally {
+            // Освобождаем ресурсы кэша
+            cachedDF.unpersist();
+        }
+    }
+    
     @PreDestroy
     public void stopStream() {
         if (isRunning.compareAndSet(true, false)) {
@@ -230,6 +294,16 @@ public class AdEventSparkStreamer {
                 } catch (Exception e) {
                     log.error("Error stopping streaming query", e);
                 }
+            }
+            
+            // Закрываем пул соединений
+            try {
+                if (dataSource != null) {
+                    dataSource.close();
+                    log.info("Connection pool closed successfully");
+                }
+            } catch (SQLException e) {
+                log.error("Error closing connection pool", e);
             }
         }
     }

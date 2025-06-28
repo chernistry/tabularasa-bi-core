@@ -23,6 +23,7 @@
         <maven.compiler.target>${java.version}</maven.compiler.target>
         <testcontainers.version>1.21.0</testcontainers.version>
         <lombok.version>1.18.38</lombok.version>
+        <dbcp2.version>2.11.0</dbcp2.version>
     </properties>
 
     <dependencies>
@@ -89,6 +90,13 @@
             <groupId>org.hsqldb</groupId>
             <artifactId>hsqldb</artifactId>
             <scope>runtime</scope>
+        </dependency>
+
+        <!-- Connection Pooling -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-dbcp2</artifactId>
+            <version>${dbcp2.version}</version>
         </dependency>
 
         <!-- Utilities -->
