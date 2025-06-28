@@ -30,6 +30,8 @@ import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.concurrent.TimeUnit;
 
+import jakarta.annotation.PreDestroy;
+
 /**
  * Separate Spring Boot application class for the Spark profile
  * This prevents JPA-related auto-configuration from loading
@@ -65,11 +67,11 @@ class SparkApplication {
 @Slf4j
 public class SparkConfig implements DisposableBean {
 
-    @Value("${spark.app.name}")
+    @Value("${spark.app.name:AdEventSparkStreamer}")
     private String appName;
 
-    @Value("${spark.master:local[2]}")
-    private String sparkMaster;
+    @Value("${spark.master.url:spark://localhost:7077}")
+    private String masterUrl;
 
     @Value("${spark.driver.memory:1g}")
     private String driverMemory;
@@ -96,154 +98,61 @@ public class SparkConfig implements DisposableBean {
     private JavaSparkContext javaSparkContext;
     
     static {
-        // Disable Kerberos authentication to fix NullPointerException
-        System.setProperty("java.security.krb5.conf", "/dev/null");
-        System.setProperty("hadoop.security.authentication", "simple");
-        System.setProperty("javax.security.auth.useSubjectCredsOnly", "false");
+        // Set system properties to fix serialization issues
+        System.setProperty("sun.io.serialization.extendedDebugInfo", "true");
+        System.setProperty("java.io.serialization.strict", "false");
+        System.setProperty("jdk.serialFilter", "allow");
+        System.setProperty("sun.serialization.validateClassSerialVersionUID", "false");
     }
 
     @Bean
     @Primary
     public SparkSession sparkSession() {
-        // Always use local mode for stability
-        String actualMaster = sparkMaster;
-        
-        log.info("Creating SparkSession with app name: {}, master: {}, driverMemory: {}, executorMemory: {}", 
-                appName, actualMaster, driverMemory, executorMemory);
-        
-        SparkConf conf = new SparkConf()
-            .setAppName(appName)
-            .setMaster(actualMaster)
-            // Use Kryo serializer for better performance
-            .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
-            .set("spark.kryo.registrator", kryoRegistrator)
-            // Increase the buffer size for serialization
-            .set("spark.kryoserializer.buffer.max", "512m")
-            .set("spark.kryoserializer.buffer", "256k")
-            // Enable class registration for Kryo
-            .set("spark.kryo.registrationRequired", "false")
-            // Allow Kryo to serialize unregistered classes
-            .set("spark.kryo.unsafe", "true")
-            
-            // Use Java serializer for problematic classes
-            .set("spark.serializer.objectStreamReset", "100")
-            .set("spark.serializer.javaSerializerReuse", "true")
-            .set("spark.serializer.useJavaSerializer", "true")
-            
-            // Settings to fix serialization issues with Scala collections
-            .set("spark.executor.extraJavaOptions", 
-                 "-Dscala.collection.immutable.List.throwExceptionOnDetach=false " +
-                 "-Dscala.collection.immutable.Vector.throwExceptionOnDetach=false " +
-                 "-Dscala.collection.Seq.throwExceptionOnDetach=false " +
-                 "-Djdk.serialFilter.allowList=scala.**,org.apache.spark.** " +
-                 "-Dsun.io.serialization.extendedDebugInfo=true " +
-                 "-Dhadoop.security.authentication=simple " +
-                 "-Djavax.security.auth.useSubjectCredsOnly=false " +
-                 "-Djava.security.krb5.conf=/dev/null " +
-                 "--add-opens=java.base/java.nio=ALL-UNNAMED")
-            .set("spark.driver.extraJavaOptions", 
-                 "-Dscala.collection.immutable.List.throwExceptionOnDetach=false " +
-                 "-Dscala.collection.immutable.Vector.throwExceptionOnDetach=false " +
-                 "-Dscala.collection.Seq.throwExceptionOnDetach=false " +
-                 "-Djdk.serialFilter.allowList=scala.**,org.apache.spark.** " +
-                 "-Dsun.io.serialization.extendedDebugInfo=true " +
-                 "-Dhadoop.security.authentication=simple " +
-                 "-Djavax.security.auth.useSubjectCredsOnly=false " +
-                 "-Djava.security.krb5.conf=/dev/null " +
-                 "--add-opens=java.base/java.nio=ALL-UNNAMED")
-            
-            // Security settings to fix Kerberos authentication issues
-            .set("spark.hadoop.hadoop.security.authentication", "simple")
-            .set("spark.hadoop.fs.defaultFS", "file:///")
-            .set("spark.kerberos.keytab", "none")
-            .set("spark.kerberos.principal", "none")
-            
-            .set("spark.sql.warehouse.dir", "/tmp/spark-warehouse")
-            .set("spark.sql.legacy.timeParserPolicy", "LEGACY")
-            .set("spark.sql.shuffle.partitions", String.valueOf(shufflePartitions))
+        if (sparkSession == null) {
+            log.info("Creating SparkSession with app name: {}, master: {}, driverMemory: {}, executorMemory: {}",
+                    appName, masterUrl, driverMemory, executorMemory);
 
-            // Disable Adaptive Query Execution (AQE) for Streaming
-            // Logs show that this feature is not supported in streaming context
-            .set("spark.sql.adaptive.enabled", "false")
+            SparkConf sparkConf = new SparkConf()
+                    .setAppName(appName)
+                    .setMaster(masterUrl)
+                    .set("spark.driver.memory", driverMemory)
+                    .set("spark.executor.memory", executorMemory)
+                    .set("spark.serializer", "org.apache.spark.serializer.JavaSerializer")
+                    .set("spark.serializer.objectStreamReset", "100")
+                    .set("spark.serializer.javaSerializerReuse", "true")
+                    .set("spark.serializer.useJavaSerializer", "true")
+                    .set("spark.sql.shuffle.partitions", "1")
+                    .set("spark.default.parallelism", "1")
+                    .set("spark.sql.adaptive.enabled", "false")
+                    .set("spark.sql.codegen.wholeStage", "false");
 
-            // Resource settings
-            .set("spark.driver.memory", driverMemory)
-            .set("spark.executor.memory", executorMemory)
-            .set("spark.executor.cores", String.valueOf(executorCores))
-
-            // Scheduler settings
-            .set("spark.scheduler.mode", "FAIR")
-            
-            // Backpressure for streaming
-            .set("spark.streaming.backpressure.enabled", "true")
-            
-            // Network optimization
-            .set("spark.network.timeout", "600s")
-            
-            // Memory optimization
-            .set("spark.memory.fraction", "0.6")
-            .set("spark.memory.storageFraction", "0.5")
-            
-            // Disable dynamic allocation for local/standalone mode for stability
-            .set("spark.dynamicAllocation.enabled", "false")
-            
-            // Disable UI to resolve servlet API conflict issues
-            .set("spark.ui.enabled", "false")
-            
-            .set("spark.streaming.stopGracefullyOnShutdown", "true")
-
-            // Fix class loading issues
-            .set("spark.driver.userClassPathFirst", "true")
-            .set("spark.executor.userClassPathFirst", "true")
-            
-            // Settings to reduce parallelism and prevent serialization issues
-            .set("spark.default.parallelism", "1")
-            .set("spark.sql.shuffle.partitions", "1")
-            .set("spark.sql.sources.parallelPartitionDiscovery.parallelism", "1")
-            .set("spark.sql.execution.arrow.maxRecordsPerBatch", "10000")
-            
-            // Disable code generation that may cause serialization issues
-            .set("spark.sql.codegen.wholeStage", "false")
-            
-            // Set logging level through configuration
-            .set("spark.log.level", "WARN");
-
-        // Create SparkSession
-        try {
-            this.sparkSession = SparkSession.builder()
-                .config(conf)
-                .getOrCreate();
-                
-            return sparkSession;
-        } catch (Exception e) {
-            log.error("Failed to create SparkSession", e);
-            throw new RuntimeException("Failed to initialize Spark", e);
+            sparkSession = SparkSession.builder()
+                    .config(sparkConf)
+                    .getOrCreate();
         }
+        return sparkSession;
     }
     
     @Bean
-    public JavaSparkContext javaSparkContext(SparkSession sparkSession) {
-        try {
+    public JavaSparkContext javaSparkContext() {
+        if (javaSparkContext == null) {
             log.info("Creating JavaSparkContext from SparkSession");
-            // Use existing SparkContext from SparkSession
-            this.javaSparkContext = new JavaSparkContext(sparkSession.sparkContext());
-            return javaSparkContext;
-        } catch (Exception e) {
-            log.error("Failed to create JavaSparkContext", e);
-            throw new RuntimeException("Failed to initialize JavaSparkContext", e);
+            SparkContext sparkContext = sparkSession().sparkContext();
+            javaSparkContext = new JavaSparkContext(sparkContext);
         }
+        return javaSparkContext;
     }
     
-    @Override
-    public void destroy() {
+    @PreDestroy
+    public void shutdown() {
         log.info("Shutting down Spark resources");
-        if (sparkSession != null && !sparkSession.sparkContext().isStopped()) {
-            try {
-                sparkSession.stop();
-                sparkSession = null;
-            } catch (Exception e) {
-                log.error("Error stopping SparkSession", e);
-            }
+        if (javaSparkContext != null) {
+            javaSparkContext.close();
+            javaSparkContext = null;
+        }
+        if (sparkSession != null) {
+            sparkSession.close();
+            sparkSession = null;
         }
     }
 }

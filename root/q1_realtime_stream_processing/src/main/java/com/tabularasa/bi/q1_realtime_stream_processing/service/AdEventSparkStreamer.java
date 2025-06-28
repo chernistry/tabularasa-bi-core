@@ -12,6 +12,7 @@ import org.apache.spark.sql.streaming.StreamingQuery;
 import org.apache.spark.sql.streaming.Trigger;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructType;
+import org.apache.spark.storage.StorageLevel;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.context.annotation.Profile;
@@ -20,41 +21,34 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import jakarta.annotation.PreDestroy;
 
 import javax.sql.DataSource;
 import java.io.IOException;
-import java.io.Serializable;
-import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 
-import org.apache.commons.dbcp2.BasicDataSource;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * Service for processing ad events using Spark Core API.
+ * Service for processing ad events using Spark Structured Streaming.
+ * Implements best practices for Spark DataFrame operations and optimized processing.
  */
 @Service
 @Slf4j
 @Profile("spark")
-@SuppressWarnings("unused")
 public class AdEventSparkStreamer {
 
     private final SparkSession sparkSession;
@@ -73,8 +67,10 @@ public class AdEventSparkStreamer {
 
     @Value("${spring.datasource.url}")
     private String dbUrl;
+    
     @Value("${spring.datasource.username}")
     private String dbUser;
+    
     @Value("${spring.datasource.password}")
     private String dbPassword;
 
@@ -84,14 +80,14 @@ public class AdEventSparkStreamer {
     @Value("${app.kafka.topics.ad-events}")
     private String inputTopic;
 
-    // Default to /tmp/spark_checkpoints if property is not provided
     @Value("${spark.streaming.checkpoint-location:/tmp/spark_checkpoints}")
     private String checkpointLocation;
+    
+    @Value("${spark.sql.shuffle.partitions:200}")
+    private int shufflePartitions;
 
     private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
-    private static final String POSTGRES_DRIVER = "org.postgresql.Driver";
 
-    @Autowired
     public AdEventSparkStreamer(
             SparkSession sparkSession, 
             MeterRegistry meterRegistry, 
@@ -116,6 +112,13 @@ public class AdEventSparkStreamer {
         this.taskExecutor.setQueueCapacity(100);
         this.taskExecutor.setThreadNamePrefix("spark-async-");
         this.taskExecutor.initialize();
+        
+        // Enable Adaptive Query Execution
+        sparkSession.conf().set("spark.sql.adaptive.enabled", "true");
+        sparkSession.conf().set("spark.sql.adaptive.coalescePartitions.enabled", "true");
+        sparkSession.conf().set("spark.sql.adaptive.skewJoin.enabled", "true");
+        sparkSession.conf().set("spark.sql.adaptive.localShuffleReader.enabled", "true");
+        sparkSession.conf().set("spark.sql.shuffle.partitions", shufflePartitions);
         
         // Check and fix database schema issues
         try {
@@ -151,7 +154,11 @@ public class AdEventSparkStreamer {
                     "CONSTRAINT aggregated_campaign_stats_unique UNIQUE (campaign_id, event_type, window_start_time)" +
                     ")"
                 );
-                log.info("Table created successfully");
+                
+                // Create indexes for better query performance
+                jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_agg_campaign_id ON aggregated_campaign_stats(campaign_id)");
+                jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_agg_window_start ON aggregated_campaign_stats(window_start_time)");
+                log.info("Table and indexes created successfully");
             }
         } catch (Exception e) {
             log.error("Error fixing database schema", e);
@@ -184,24 +191,25 @@ public class AdEventSparkStreamer {
                     streamOptions.putAll(kafkaOptions);
                 }
                 
-                // Set kafka bootstrap servers directly to avoid format mismatch issues
-                // Remove any existing bootstrap servers config to avoid duplicates
+                // Set kafka bootstrap servers directly
                 streamOptions.remove("kafka.bootstrap.servers");
                 streamOptions.remove("bootstrap.servers");
-                
-                // Use the correct format for Spark Structured Streaming
                 streamOptions.put("kafka.bootstrap.servers", kafkaBootstrapServers);
                 streamOptions.put("subscribe", inputTopic);
                 
-                // Create stream from Kafka with corrected settings
+                // Configure optimal partitioning based on data size
+                // Aim for 100-200MB per partition for better performance
+                streamOptions.put("fetchOffset.numRetries", "5");
+                streamOptions.put("failOnDataLoss", "false");
+                
+                // Create stream from Kafka with optimized settings
                 DataStreamReader streamReader = sparkSession.readStream()
                     .format("kafka")
-                    .option("minPartitions", "1") // Уменьшаем до 1 для предотвращения проблем с сериализацией
-                    .option("maxOffsetsPerTrigger", 1000); // Уменьшаем лимит для снижения нагрузки на память
+                    .option("maxOffsetsPerTrigger", 10000); // Adjust based on your throughput needs
                 
-                // Apply all options directly to avoid string format issues
+                // Apply all options
                 for (Map.Entry<String, String> option : streamOptions.entrySet()) {
-                    if (!option.getKey().equals("format")) { // Skip format as it's already set
+                    if (!option.getKey().equals("format")) {
                         streamReader = streamReader.option(option.getKey(), option.getValue());
                     }
                 }
@@ -209,7 +217,7 @@ public class AdEventSparkStreamer {
                 // Load data
                 Dataset<Row> kafkaStream = streamReader.load();
                 
-                // Extract JSON from Kafka and parse it with increased error tolerance
+                // Extract JSON from Kafka and parse it
                 Dataset<Row> jsonStream = kafkaStream
                     .selectExpr("CAST(value AS STRING) as json", "CAST(key AS STRING) as key", "topic", "partition", "offset", "timestamp")
                     .select(functions.from_json(functions.col("json"), schema).as("data"), 
@@ -218,10 +226,11 @@ public class AdEventSparkStreamer {
                     .select("data.*", "key", "topic", "partition", "offset", "kafka_timestamp")
                     .filter(functions.col("campaign_id").isNotNull());
                 
-                // Принудительно уменьшаем количество партиций до 1
-                jsonStream = jsonStream.coalesce(1);
+                // Cache the filtered stream for better performance in subsequent operations
+                // Use MEMORY_AND_DISK storage level for efficient processing
+                jsonStream = jsonStream.persist(StorageLevel.MEMORY_AND_DISK());
                 
-                // Aggregate data by campaign_id and event_type with checkpointing
+                // Aggregate data by campaign_id and event_type with optimized windowing
                 Dataset<Row> aggregatedData = jsonStream
                     .withWatermark("timestamp", "1 minute")
                     .groupBy(
@@ -234,8 +243,8 @@ public class AdEventSparkStreamer {
                         functions.sum("bid_amount_usd").as("total_bid_amount")
                     );
                 
-                // Принудительно уменьшаем количество партиций результата до 1
-                aggregatedData = aggregatedData.coalesce(1);
+                // Let Adaptive Query Execution handle partition sizing
+                // This is better than manually setting coalesce(1)
 
                 // Write the aggregated data to the database
                 this.streamingQuery = aggregatedData.writeStream()
@@ -262,33 +271,50 @@ public class AdEventSparkStreamer {
             return;
         }
         
+        Timer.Sample sample = Timer.start(meterRegistry);
+        
         try {
-            // Вместо вызова batchDF.persist() и batchDF.count(), которые могут вызвать проблемы с сериализацией,
-            // используем более простой подход с collect() для маленьких батчей
             log.info("Processing batch ID: {}", batchId);
             
-            // Преобразуем данные в локальную коллекцию Java-объектов
-            List<Row> rows = batchDF.collectAsList();
-            log.info("Batch {} contains {} rows", batchId, rows.size());
+            // Use explain to understand the query plan
+            if (log.isDebugEnabled()) {
+                log.debug("Batch {} execution plan:", batchId);
+                batchDF.explain(true);
+            }
             
-            if (rows.isEmpty()) {
-                log.warn("Batch {} is empty after collect, skipping", batchId);
+            // Cache the batch data for multiple operations
+            Dataset<Row> cachedBatch = batchDF.persist(StorageLevel.MEMORY_AND_DISK());
+            
+            // Get batch size for metrics
+            long rowCount = cachedBatch.count();
+            log.info("Batch {} contains {} rows", batchId, rowCount);
+            processedEventsCounter.increment(rowCount);
+            
+            if (rowCount == 0) {
+                log.warn("Batch {} is empty after count, skipping", batchId);
                 return;
             }
             
-            // Обработка данных напрямую, без использования Spark DataFrame API
+            // Process data using JDBC batch operations for better performance
             try (Connection connection = dataSource.getConnection()) {
                 connection.setAutoCommit(false);
                 
-                String upsertSql = "INSERT INTO aggregated_campaign_stats (campaign_id, event_type, window_start_time, window_end_time, event_count, total_bid_amount, updated_at) " +
+                String upsertSql = "INSERT INTO aggregated_campaign_stats " +
+                        "(campaign_id, event_type, window_start_time, window_end_time, event_count, total_bid_amount, updated_at) " +
                         "VALUES (?, ?, ?, ?, ?, ?, NOW()) " +
                         "ON CONFLICT (campaign_id, event_type, window_start_time) DO UPDATE SET " +
                         "event_count = aggregated_campaign_stats.event_count + EXCLUDED.event_count, " +
                         "total_bid_amount = aggregated_campaign_stats.total_bid_amount + EXCLUDED.total_bid_amount, " +
                         "updated_at = NOW()";
                 
+                // Use efficient batch processing with optimal batch size
+                final int BATCH_SIZE = 100;
+                
                 try (PreparedStatement statement = connection.prepareStatement(upsertSql)) {
                     int count = 0;
+                    
+                    // Collect data efficiently
+                    List<Row> rows = cachedBatch.collectAsList();
                     
                     for (Row row : rows) {
                         try {
@@ -305,16 +331,17 @@ public class AdEventSparkStreamer {
                             statement.addBatch();
                             count++;
                             
-                            if (count % 100 == 0) {
+                            if (count % BATCH_SIZE == 0) {
                                 statement.executeBatch();
-                                log.debug("Executed batch of {} records", count);
+                                log.debug("Executed batch of {} records", BATCH_SIZE);
                             }
                         } catch (Exception e) {
                             log.error("Error processing row: {}", row.toString(), e);
+                            failedEventsCounter.increment();
                         }
                     }
                     
-                    if (count % 100 != 0) {
+                    if (count % BATCH_SIZE != 0) {
                         statement.executeBatch();
                     }
                     
@@ -322,6 +349,7 @@ public class AdEventSparkStreamer {
                     log.info("Successfully committed {} records to database", count);
                 } catch (SQLException e) {
                     log.error("Error executing batch", e);
+                    failedEventsCounter.increment(rowCount);
                     try {
                         connection.rollback();
                         log.info("Transaction rolled back");
@@ -331,9 +359,16 @@ public class AdEventSparkStreamer {
                 }
             } catch (Exception e) {
                 log.error("Error processing batch {}", batchId, e);
+                failedEventsCounter.increment(rowCount);
+            } finally {
+                // Unpersist cached data to free up memory
+                cachedBatch.unpersist();
             }
         } catch (Exception e) {
             log.error("Error collecting batch data {}", batchId, e);
+            failedEventsCounter.increment();
+        } finally {
+            sample.stop(batchProcessingTimer);
         }
     }
     
