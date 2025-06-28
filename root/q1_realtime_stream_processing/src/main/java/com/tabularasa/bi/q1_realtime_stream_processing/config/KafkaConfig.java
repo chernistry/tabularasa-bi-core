@@ -18,6 +18,18 @@ import java.util.Map;
 @Configuration
 public class KafkaConfig {
 
+    // TODO: Configure SSL/TLS for secure communication with Kafka brokers in production.
+    // Example properties:
+    // security.protocol=SSL
+    // ssl.truststore.location=/path/to/truststore.jks
+    // ssl.truststore.password=...
+    // ssl.keystore.location=/path/to/keystore.jks
+    // ssl.keystore.password=...
+    // TODO: Enforce SASL authentication (e.g., SASL_SSL with PLAIN or SCRAM) for production environments.
+    // Example properties:
+    // sasl.mechanism=SCRAM-SHA-512
+    // sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="..." password="...";
+
     @Value("${app.kafka.bootstrap-servers}")
     private String bootstrapServers;
     

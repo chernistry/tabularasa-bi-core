@@ -12,7 +12,6 @@ import org.apache.spark.sql.streaming.StreamingQuery;
 import org.apache.spark.sql.streaming.Trigger;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructType;
-import org.apache.spark.storage.StorageLevel;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.context.annotation.Profile;
@@ -21,26 +20,36 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import jakarta.annotation.PreDestroy;
 
 import javax.sql.DataSource;
 import java.io.IOException;
+import java.io.Serializable;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 
+import org.apache.commons.dbcp2.BasicDataSource;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.jdbc.core.JdbcTemplate;
+import static org.apache.spark.sql.functions.*;
+import org.apache.spark.storage.StorageLevel;
 
 /**
  * Service for processing ad events using Spark Structured Streaming.
@@ -67,10 +76,8 @@ public class AdEventSparkStreamer {
 
     @Value("${spring.datasource.url}")
     private String dbUrl;
-    
     @Value("${spring.datasource.username}")
     private String dbUser;
-    
     @Value("${spring.datasource.password}")
     private String dbPassword;
 
@@ -82,12 +89,38 @@ public class AdEventSparkStreamer {
 
     @Value("${spark.streaming.checkpoint-location:/tmp/spark_checkpoints}")
     private String checkpointLocation;
-    
+
     @Value("${spark.sql.shuffle.partitions:200}")
     private int shufflePartitions;
 
-    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
+    private static final String TARGET_TABLE = "aggregated_campaign_stats";
 
+    // Extended schema with additional fields that may be present in real data
+    private static final StructType AD_EVENT_SCHEMA = new StructType()
+            .add("timestamp", "timestamp")
+            .add("campaign_id", "string")
+            .add("event_type", "string")
+            .add("user_id", "string")
+            .add("spend_usd", "double")
+            .add("device_type", "string")
+            .add("country_code", "string")
+            .add("product_brand", "string")
+            .add("product_age_group", "string")
+            .add("product_category_1", "integer")
+            .add("product_category_2", "integer")
+            .add("product_category_3", "integer")
+            .add("product_category_4", "integer")
+            .add("product_category_5", "integer")
+            .add("product_category_6", "integer")
+            .add("product_category_7", "integer")
+            .add("product_price", "double")
+            .add("sales_amount_euro", "double")
+            .add("sale", "boolean");
+
+    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
+    private static final String POSTGRES_DRIVER = "org.postgresql.Driver";
+
+    @Autowired
     public AdEventSparkStreamer(
             SparkSession sparkSession, 
             MeterRegistry meterRegistry, 
@@ -119,280 +152,149 @@ public class AdEventSparkStreamer {
         sparkSession.conf().set("spark.sql.adaptive.skewJoin.enabled", "true");
         sparkSession.conf().set("spark.sql.adaptive.localShuffleReader.enabled", "true");
         sparkSession.conf().set("spark.sql.shuffle.partitions", shufflePartitions);
-        
-        // Check and fix database schema issues
-        try {
-            ensureDatabaseSchema();
-        } catch (Exception e) {
-            log.warn("Failed to fix database schema: {}", e.getMessage());
-        }
-    }
-    
-    /**
-     * Ensure database schema by creating the table if it doesn't exist.
-     * This is a temporary solution. A proper migration tool should be used.
-     */
-    private void ensureDatabaseSchema() {
-        try {
-            // Check if table exists and create it if needed
-            Boolean tableExists = jdbcTemplate.queryForObject(
-                "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'aggregated_campaign_stats')",
-                Boolean.class);
-                
-            if (tableExists == null || !tableExists) {
-                log.info("Table 'aggregated_campaign_stats' not found. Creating it.");
-                jdbcTemplate.execute(
-                    "CREATE TABLE IF NOT EXISTS aggregated_campaign_stats (" +
-                    "id SERIAL PRIMARY KEY, " +
-                    "campaign_id VARCHAR(255) NOT NULL, " +
-                    "event_type VARCHAR(50) NOT NULL, " +
-                    "window_start_time TIMESTAMP NOT NULL, " +
-                    "window_end_time TIMESTAMP NOT NULL, " +
-                    "event_count BIGINT NOT NULL, " +
-                    "total_bid_amount DECIMAL(18, 6) NOT NULL, " +
-                    "updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
-                    "CONSTRAINT aggregated_campaign_stats_unique UNIQUE (campaign_id, event_type, window_start_time)" +
-                    ")"
-                );
-                
-                // Create indexes for better query performance
-                jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_agg_campaign_id ON aggregated_campaign_stats(campaign_id)");
-                jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_agg_window_start ON aggregated_campaign_stats(window_start_time)");
-                log.info("Table and indexes created successfully");
-            }
-        } catch (Exception e) {
-            log.error("Error fixing database schema", e);
-            throw e;
-        }
     }
 
     public void startStream() throws TimeoutException {
         if (isRunning.compareAndSet(false, true)) {
             log.info("Initializing Spark Structured Streaming for topic [{}]", inputTopic);
             
-            try {
-                // Clear checkpoint directory to prevent issues with outdated offsets
-                clearCheckpointDirectory();
-                createCheckpointDirectory();
-                
-                // Define JSON schema for events
-                StructType schema = new StructType()
-                    .add("timestamp", DataTypes.TimestampType)
-                    .add("campaign_id", DataTypes.StringType)
-                    .add("event_id", DataTypes.StringType)
-                    .add("ad_creative_id", DataTypes.StringType)
-                    .add("event_type", DataTypes.StringType)
-                    .add("user_id", DataTypes.StringType)
-                    .add("bid_amount_usd", DataTypes.DoubleType);
-                
-                // Safe copy of the options map to avoid concurrent modification
-                Map<String, String> streamOptions = new HashMap<>();
-                if (kafkaOptions != null) {
-                    streamOptions.putAll(kafkaOptions);
-                }
-                
-                // Set kafka bootstrap servers directly
-                streamOptions.remove("kafka.bootstrap.servers");
-                streamOptions.remove("bootstrap.servers");
-                streamOptions.put("kafka.bootstrap.servers", kafkaBootstrapServers);
-                streamOptions.put("subscribe", inputTopic);
-                
-                // Configure optimal partitioning based on data size
-                // Aim for 100-200MB per partition for better performance
-                streamOptions.put("fetchOffset.numRetries", "5");
-                streamOptions.put("failOnDataLoss", "false");
-                
-                // Create stream from Kafka with optimized settings
-                DataStreamReader streamReader = sparkSession.readStream()
+            // TODO: In a production environment, clearing the checkpoint directory should be avoided
+            // as it can lead to data loss or reprocessing. This is here for development convenience.
+            // Consider a strategy for managing checkpoints, such as versioning or manual cleanup when needed.
+            createCheckpointDirectory();
+            
+            Dataset<Row> kafkaStream = sparkSession.readStream()
                     .format("kafka")
-                    .option("maxOffsetsPerTrigger", 10000); // Adjust based on your throughput needs
-                
-                // Apply all options
-                for (Map.Entry<String, String> option : streamOptions.entrySet()) {
-                    if (!option.getKey().equals("format")) {
-                        streamReader = streamReader.option(option.getKey(), option.getValue());
-                    }
-                }
-                
-                // Load data
-                Dataset<Row> kafkaStream = streamReader.load();
-                
-                // Extract JSON from Kafka and parse it
-                Dataset<Row> jsonStream = kafkaStream
-                    .selectExpr("CAST(value AS STRING) as json", "CAST(key AS STRING) as key", "topic", "partition", "offset", "timestamp")
-                    .select(functions.from_json(functions.col("json"), schema).as("data"), 
-                            functions.col("key"), functions.col("topic"), functions.col("partition"), 
-                            functions.col("offset"), functions.col("timestamp").as("kafka_timestamp"))
-                    .select("data.*", "key", "topic", "partition", "offset", "kafka_timestamp")
-                    .filter(functions.col("campaign_id").isNotNull());
-                
-                // Cache the filtered stream for better performance in subsequent operations
-                // Use MEMORY_AND_DISK storage level for efficient processing
-                jsonStream = jsonStream.persist(StorageLevel.MEMORY_AND_DISK());
-                
-                // Aggregate data by campaign_id and event_type with optimized windowing
-                Dataset<Row> aggregatedData = jsonStream
-                    .withWatermark("timestamp", "1 minute")
+                    .option("kafka.bootstrap.servers", kafkaBootstrapServers)
+                    .option("subscribe", inputTopic)
+                    .option("failOnDataLoss", "false") // Best practice for production to not lose data
+                    .option("startingOffsets", "earliest") // Process all data from the beginning on first start
+                    .option("maxOffsetsPerTrigger", 10000) // Rate limiting
+                    .load();
+
+            Dataset<Row> eventsDF = kafkaStream
+                    .select(from_json(col("value").cast("string"), AD_EVENT_SCHEMA).alias("event_data"))
+                    .select("event_data.*")
+                    .withColumn("event_timestamp", col("timestamp").cast("timestamp"));
+
+            Dataset<Row> enrichedDF = eventsDF
+                    .withColumn("total_bid_amount", coalesce(col("spend_usd"), lit(0.0)))
+                    .na().fill("unknown", new String[]{"device_type", "country_code", "product_brand", "product_age_group"})
+                    .na().fill(0, new String[]{"product_category_1", "product_category_2", "product_category_3", "product_category_4", "product_category_5", "product_category_6", "product_category_7"})
+                    .na().fill(0.0, new String[]{"sales_amount_euro"})
+                    .na().fill(false, new String[]{"sale"});
+
+            Dataset<Row> aggregatedData = enrichedDF
+                    .withWatermark("event_timestamp", "1 minute")
                     .groupBy(
-                        functions.window(functions.col("timestamp"), "1 minute"),
-                        functions.col("campaign_id"),
-                        functions.col("event_type")
+                            window(col("event_timestamp"), "1 minute"),
+                            col("campaign_id"),
+                            col("event_type")
                     )
                     .agg(
-                        functions.count("*").as("event_count"),
-                        functions.sum("bid_amount_usd").as("total_bid_amount")
+                            count("*").as("event_count"),
+                            sum("total_bid_amount").as("total_bid_amount")
                     );
-                
-                // Let Adaptive Query Execution handle partition sizing
-                // This is better than manually setting coalesce(1)
 
-                // Write the aggregated data to the database
-                this.streamingQuery = aggregatedData.writeStream()
+            this.streamingQuery = aggregatedData.writeStream()
                     .outputMode(OutputMode.Update())
-                    .foreachBatch(this::processBatch)
-                    .option("checkpointLocation", checkpointLocation)
                     .trigger(Trigger.ProcessingTime(1, TimeUnit.MINUTES))
+                    .option("checkpointLocation", checkpointLocation)
+                    .foreachBatch(this::processBatch)
                     .start();
-                
-                log.info("Spark Structured Streaming started successfully.");
-                
-            } catch (Exception e) {
-                log.error("Failed to start Spark Structured Streaming", e);
-                isRunning.set(false);
-                throw new TimeoutException("Failed to start Spark Structured Streaming: " + e.getMessage());
-            }
-        } else {
-            log.warn("Stream is already running.");
+
+            log.info("Spark Streaming job started. Query ID: {}", streamingQuery.id());
         }
     }
     
     private void processBatch(Dataset<Row> batchDF, Long batchId) {
+        final int MAX_RETRIES = 3;
+        int retry = 0;
+        boolean success = false;
+
+        Timer.Sample sample = Timer.start(meterRegistry);
+
+        log.info("Processing batch: {}", batchId);
         if (batchDF.isEmpty()) {
+            log.warn("Batch {} is empty, skipping.", batchId);
             return;
         }
-        
-        Timer.Sample sample = Timer.start(meterRegistry);
-        
+
+        // Cache the DataFrame to avoid recomputation
+        batchDF.persist(StorageLevel.MEMORY_AND_DISK());
+
         try {
-            log.info("Processing batch ID: {}", batchId);
-            
-            // Use explain to understand the query plan
-            if (log.isDebugEnabled()) {
-                log.debug("Batch {} execution plan:", batchId);
-                batchDF.explain(true);
-            }
-            
-            // Cache the batch data for multiple operations
-            Dataset<Row> cachedBatch = batchDF.persist(StorageLevel.MEMORY_AND_DISK());
-            
-            // Get batch size for metrics
-            long rowCount = cachedBatch.count();
-            log.info("Batch {} contains {} rows", batchId, rowCount);
-            processedEventsCounter.increment(rowCount);
-            
-            if (rowCount == 0) {
-                log.warn("Batch {} is empty after count, skipping", batchId);
+            List<Row> rows = batchDF.collectAsList();
+            log.info("Batch {} contains {} rows to be written.", batchId, rows.size());
+
+            if (rows.isEmpty()) {
+                log.warn("Batch {} is empty after collect, skipping.", batchId);
                 return;
             }
-            
-            // Process data using JDBC batch operations for better performance
-            try (Connection connection = dataSource.getConnection()) {
-                connection.setAutoCommit(false);
-                
-                String upsertSql = "INSERT INTO aggregated_campaign_stats " +
-                        "(campaign_id, event_type, window_start_time, window_end_time, event_count, total_bid_amount, updated_at) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, NOW()) " +
-                        "ON CONFLICT (campaign_id, event_type, window_start_time) DO UPDATE SET " +
-                        "event_count = aggregated_campaign_stats.event_count + EXCLUDED.event_count, " +
-                        "total_bid_amount = aggregated_campaign_stats.total_bid_amount + EXCLUDED.total_bid_amount, " +
-                        "updated_at = NOW()";
-                
-                // Use efficient batch processing with optimal batch size
-                final int BATCH_SIZE = 100;
-                
-                try (PreparedStatement statement = connection.prepareStatement(upsertSql)) {
-                    int count = 0;
-                    
-                    // Collect data efficiently
-                    List<Row> rows = cachedBatch.collectAsList();
-                    
-                    for (Row row : rows) {
-                        try {
-                            Row window = row.getStruct(0);
-                            Timestamp windowStart = window.getTimestamp(0);
-                            Timestamp windowEnd = window.getTimestamp(1);
-                            
-                            statement.setString(1, row.getString(1)); // campaign_id
-                            statement.setString(2, row.getString(2)); // event_type
-                            statement.setTimestamp(3, windowStart);   // window_start_time
-                            statement.setTimestamp(4, windowEnd);     // window_end_time
-                            statement.setLong(5, row.getLong(3));     // event_count
-                            statement.setBigDecimal(6, row.getDecimal(4)); // total_bid_amount
-                            statement.addBatch();
-                            count++;
-                            
-                            if (count % BATCH_SIZE == 0) {
-                                statement.executeBatch();
-                                log.debug("Executed batch of {} records", BATCH_SIZE);
+
+            while (!success && retry < MAX_RETRIES) {
+                try (Connection connection = dataSource.getConnection()) {
+                    connection.setAutoCommit(false);
+
+                    String upsertSQL = String.format(
+                            "INSERT INTO %s (campaign_id, event_type, window_start_time, window_end_time, event_count, total_bid_amount, updated_at) " +
+                            "VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) " +
+                            "ON CONFLICT (campaign_id, event_type, window_start_time) DO UPDATE SET " +
+                            "event_count = aggregated_campaign_stats.event_count + EXCLUDED.event_count, " +
+                            "total_bid_amount = aggregated_campaign_stats.total_bid_amount + EXCLUDED.total_bid_amount, " +
+                            "window_end_time = EXCLUDED.window_end_time, " +
+                            "updated_at = CURRENT_TIMESTAMP",
+                            TARGET_TABLE
+                    );
+
+                    try (PreparedStatement statement = connection.prepareStatement(upsertSQL)) {
+                        int batchSize = 0;
+                        for (Row row : rows) {
+                            try {
+                                Row window = row.getStruct(0);
+                                statement.setString(1, row.getString(1)); // campaign_id
+                                statement.setString(2, row.getString(2)); // event_type
+                                statement.setTimestamp(3, window.getTimestamp(0));   // window_start_time
+                                statement.setTimestamp(4, window.getTimestamp(1));     // window_end_time
+                                statement.setLong(5, row.getLong(3));     // event_count
+                                statement.setDouble(6, row.getDouble(4)); // total_bid_amount
+                                statement.addBatch();
+                                batchSize++;
+                            } catch (Exception e) {
+                                log.error("Error processing row, skipping: {}", row.toString(), e);
+                                failedEventsCounter.increment();
                             }
-                        } catch (Exception e) {
-                            log.error("Error processing row: {}", row.toString(), e);
-                            failedEventsCounter.increment();
                         }
-                    }
-                    
-                    if (count % BATCH_SIZE != 0) {
                         statement.executeBatch();
-                    }
-                    
-                    connection.commit();
-                    log.info("Successfully committed {} records to database", count);
-                } catch (SQLException e) {
-                    log.error("Error executing batch", e);
-                    failedEventsCounter.increment(rowCount);
-                    try {
+                        connection.commit();
+                        log.info("Successfully committed {} records to database for batch {}", batchSize, batchId);
+                        processedEventsCounter.increment(batchSize);
+                        success = true; // Mark as success to exit the while loop
+                    } catch (SQLException e) {
+                        log.error("Error executing batch for batchId: {}, attempt {}/{}", batchId, retry + 1, MAX_RETRIES, e);
                         connection.rollback();
-                        log.info("Transaction rolled back");
-                    } catch (SQLException re) {
-                        log.error("Error during rollback", re);
+                        retry++;
+                        Thread.sleep(2000L * retry);
+                    }
+                } catch (SQLException | InterruptedException e) {
+                    log.error("Error with DB connection for batchId: {}, attempt {}/{}", batchId, retry + 1, MAX_RETRIES, e);
+                    retry++;
+                    try {
+                        Thread.sleep(2000L * retry);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
                     }
                 }
-            } catch (Exception e) {
-                log.error("Error processing batch {}", batchId, e);
-                failedEventsCounter.increment(rowCount);
-            } finally {
-                // Unpersist cached data to free up memory
-                cachedBatch.unpersist();
+            } // end while
+
+            if (!success) {
+                log.error("Failed to process batch {} after {} retries. Giving up.", batchId, MAX_RETRIES);
+                failedEventsCounter.increment(rows.size());
             }
-        } catch (Exception e) {
-            log.error("Error collecting batch data {}", batchId, e);
-            failedEventsCounter.increment();
+
         } finally {
+            batchDF.unpersist();
             sample.stop(batchProcessingTimer);
-        }
-    }
-    
-    /**
-     * Clears the checkpoint directory to prevent issues with outdated offsets.
-     */
-    private void clearCheckpointDirectory() {
-        Path checkpointPath = Paths.get(checkpointLocation);
-        if (Files.exists(checkpointPath)) {
-            try {
-                log.info("Clearing checkpoint directory: {}", checkpointPath.toAbsolutePath());
-                Files.walk(checkpointPath)
-                    .sorted(Comparator.reverseOrder())
-                    .forEach(path -> {
-                        try {
-                            Files.delete(path);
-                        } catch (IOException e) {
-                            log.warn("Could not delete checkpoint file: {}", path, e);
-                        }
-                    });
-                log.info("Checkpoint directory cleared successfully");
-            } catch (IOException e) {
-                log.warn("Could not clear checkpoint directory: {}", checkpointPath, e);
-            }
         }
     }
     
@@ -401,25 +303,19 @@ public class AdEventSparkStreamer {
         shutdownLock.lock();
         try {
             if (isRunning.compareAndSet(true, false)) {
-                log.info("Attempting to stop Spark Structured Streaming query...");
+                log.info("Attempting to gracefully stop Spark Structured Streaming query...");
                 if (streamingQuery != null && streamingQuery.isActive()) {
                     try {
                         streamingQuery.stop();
-                        log.info("Spark Structured Streaming query stopped successfully.");
-                    } catch (Exception e) {
-                        log.error("Error while stopping Spark streaming query", e);
+                        log.info("Spark Streaming query stopped successfully.");
+                    } catch (TimeoutException e) {
+                        log.error("Timeout while stopping Spark Streaming query", e);
                     }
                 }
-                
-                // Stop thread pool
-                try {
-                    if (taskExecutor != null) {
-                        taskExecutor.shutdown();
-                        log.info("Task executor shutdown initiated");
-                    }
-                } catch (Exception e) {
-                    log.error("Error shutting down task executor", e);
+                if (taskExecutor != null) {
+                    taskExecutor.shutdown();
                 }
+                log.info("Spark resources released.");
             }
         } finally {
             shutdownLock.unlock();
@@ -429,20 +325,13 @@ public class AdEventSparkStreamer {
     private void createCheckpointDirectory() {
         try {
             Path checkpointPath = Paths.get(checkpointLocation);
-            Files.createDirectories(checkpointPath);
-            log.info("Created checkpoint directory: {}", checkpointPath.toAbsolutePath());
-        } catch (IOException e) {
-            log.warn("Could not create checkpoint directory: {}", checkpointLocation, e);
-            // Try to create a fallback directory in /tmp
-            try {
-                String fallbackPath = "/tmp/spark_checkpoints_" + System.currentTimeMillis();
-                Files.createDirectories(Paths.get(fallbackPath));
-                checkpointLocation = fallbackPath;
-                log.info("Created fallback checkpoint directory: {}", fallbackPath);
-            } catch (IOException ex) {
-                log.error("Failed to create fallback checkpoint directory", ex);
-                throw new RuntimeException("Could not create checkpoint directory", ex);
+            if (!Files.exists(checkpointPath)) {
+                Files.createDirectories(checkpointPath);
+                log.info("Created checkpoint directory: {}", checkpointLocation);
             }
+        } catch (IOException e) {
+            log.error("Failed to create checkpoint directory: {}", checkpointLocation, e);
+            throw new RuntimeException("Failed to create checkpoint directory", e);
         }
     }
 } 

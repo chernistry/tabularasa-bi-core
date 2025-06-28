@@ -108,6 +108,23 @@ public class KryoRegistrator implements org.apache.spark.serializer.KryoRegistra
             kryo.register(Class.forName("org.apache.spark.sql.connector.read.PartitionReader"));
             kryo.register(Class.forName("org.apache.spark.sql.connector.read.PartitionReaderFactory"));
             
+            // Register Spark Task and related classes to fix serialization issues
+            kryo.register(Class.forName("org.apache.spark.scheduler.Task"));
+            kryo.register(Class.forName("org.apache.spark.scheduler.ResultTask"));
+            kryo.register(Class.forName("org.apache.spark.scheduler.ShuffleMapTask"));
+            kryo.register(Class.forName("org.apache.spark.scheduler.TaskDescription"));
+            kryo.register(Class.forName("org.apache.spark.scheduler.TaskLocation"));
+            kryo.register(Class.forName("org.apache.spark.scheduler.TaskInfo"));
+            kryo.register(Class.forName("org.apache.spark.scheduler.Stage"));
+            kryo.register(Class.forName("org.apache.spark.scheduler.ActiveJob"));
+            kryo.register(Class.forName("org.apache.spark.executor.TaskMetrics"));
+            kryo.register(Class.forName("org.apache.spark.TaskContext"));
+            kryo.register(Class.forName("org.apache.spark.ShuffleDependency"));
+            kryo.register(Class.forName("org.apache.spark.Partition"));
+            kryo.register(Class.forName("org.apache.spark.Partitioner"));
+            kryo.register(Class.forName("org.apache.spark.HashPartitioner"));
+            kryo.register(Class.forName("org.apache.spark.RangePartitioner"));
+            
         } catch (ClassNotFoundException e) {
             // Log the error but continue working
             System.err.println("Warning: Could not register some Scala collections: " + e.getMessage());

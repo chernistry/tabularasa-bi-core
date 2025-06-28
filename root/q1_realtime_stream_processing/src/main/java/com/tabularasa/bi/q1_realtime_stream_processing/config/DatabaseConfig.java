@@ -17,7 +17,8 @@ import java.sql.Statement;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Database configuration for schema initialization and connection check.
+ * Database configuration for connection check.
+ * Schema initialization is handled in Q1RealtimeStreamProcessingApplication.
  */
 @Configuration
 @RequiredArgsConstructor
@@ -29,29 +30,6 @@ public class DatabaseConfig {
 
     @Value("${spring.datasource.initialization-mode:never}")
     private String initMode;
-
-    /**
-     * Initializes the database using the schema.sql SQL script.
-     * @return DataSourceInitializer for database schema initialization
-     */
-    @Bean
-    public DataSourceInitializer dataSourceInitializer() {
-        ResourceDatabasePopulator resourceDatabasePopulator = new ResourceDatabasePopulator();
-        
-        try {
-            resourceDatabasePopulator.addScript(new ClassPathResource("schema.sql"));
-            resourceDatabasePopulator.setSeparator(";");
-            resourceDatabasePopulator.setContinueOnError(true);
-        } catch (Exception e) {
-            log.error("Error setting up database initializer", e);
-        }
-        
-        DataSourceInitializer dataSourceInitializer = new DataSourceInitializer();
-        dataSourceInitializer.setDataSource(dataSource);
-        dataSourceInitializer.setDatabasePopulator(resourceDatabasePopulator);
-        
-        return dataSourceInitializer;
-    }
 
     /**
      * Checks the database connection at application startup.

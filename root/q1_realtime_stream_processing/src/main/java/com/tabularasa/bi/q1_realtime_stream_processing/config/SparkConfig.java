@@ -31,6 +31,7 @@ import java.util.Comparator;
 import java.util.concurrent.TimeUnit;
 
 import jakarta.annotation.PreDestroy;
+import org.apache.spark.SparkContext;
 
 /**
  * Separate Spring Boot application class for the Spark profile
@@ -85,7 +86,7 @@ public class SparkConfig implements DisposableBean {
     @Value("${spark.default.parallelism:2}")
     private int defaultParallelism;
 
-    @Value("${spark.sql.shuffle.partitions:2}")
+    @Value("${spark.sql.shuffle.partitions:8}")
     private int shufflePartitions;
     
     @Value("${spark.streaming.checkpoint-location:/tmp/spark_checkpoints}")
@@ -117,13 +118,14 @@ public class SparkConfig implements DisposableBean {
                     .setMaster(masterUrl)
                     .set("spark.driver.memory", driverMemory)
                     .set("spark.executor.memory", executorMemory)
-                    .set("spark.serializer", "org.apache.spark.serializer.JavaSerializer")
-                    .set("spark.serializer.objectStreamReset", "100")
-                    .set("spark.serializer.javaSerializerReuse", "true")
-                    .set("spark.serializer.useJavaSerializer", "true")
-                    .set("spark.sql.shuffle.partitions", "1")
-                    .set("spark.default.parallelism", "1")
-                    .set("spark.sql.adaptive.enabled", "false")
+                    .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+                    .set("spark.kryo.registrator", kryoRegistrator)
+                    .set("spark.kryo.registrationRequired", "false")
+                    .set("spark.sql.shuffle.partitions", String.valueOf(shufflePartitions))
+                    .set("spark.default.parallelism", String.valueOf(defaultParallelism))
+                    .set("spark.sql.adaptive.enabled", "true")
+                    .set("spark.sql.adaptive.coalescePartitions.enabled", "true")
+                    .set("spark.sql.adaptive.skewJoin.enabled", "true")
                     .set("spark.sql.codegen.wholeStage", "false");
 
             sparkSession = SparkSession.builder()
@@ -143,8 +145,8 @@ public class SparkConfig implements DisposableBean {
         return javaSparkContext;
     }
     
-    @PreDestroy
-    public void shutdown() {
+    @Override
+    public void destroy() {
         log.info("Shutting down Spark resources");
         if (javaSparkContext != null) {
             javaSparkContext.close();

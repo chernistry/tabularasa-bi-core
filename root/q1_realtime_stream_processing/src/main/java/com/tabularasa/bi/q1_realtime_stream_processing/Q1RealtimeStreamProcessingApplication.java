@@ -86,7 +86,9 @@ public class Q1RealtimeStreamProcessingApplication {
         return args -> {
             log.info("Checking database schema...");
             
-            // Check if view exists and drop it if necessary to prevent schema conflicts
+            // TODO: Use a proper database migration tool like Flyway or Liquibase
+            // to manage schema changes versionally and avoid manual DDL in code.
+            // Dropping views like this is a temporary workaround.
             boolean viewExists = jdbcTemplate.queryForObject(
                 "SELECT EXISTS (SELECT 1 FROM pg_views WHERE viewname = 'v_aggregated_campaign_stats')", 
                 Boolean.class);
@@ -97,7 +99,7 @@ public class Q1RealtimeStreamProcessingApplication {
                 log.info("View dropped successfully");
             }
             
-            // Check if table exists and create it if needed
+            // TODO: DDL should be externalized into SQL migration scripts.
             boolean tableExists = jdbcTemplate.queryForObject(
                 "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'aggregated_campaign_stats')", 
                 Boolean.class);
@@ -166,7 +168,7 @@ public class Q1RealtimeStreamProcessingApplication {
                         TimeUnit.MILLISECONDS.sleep(waitTime);
                     } else {
                         log.error("Maximum retry attempts reached. Failed to start Spark streaming job.");
-                        // Do not terminate the application to keep REST API running
+                        // The application will continue to run to keep other potential services (e.g., REST API) available.
                     }
                 }
             }
