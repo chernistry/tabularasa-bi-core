@@ -101,10 +101,9 @@ public class AdEventSparkStreamer {
                 .option("subscribe", adEventsTopic)
                 .option("failOnDataLoss", "false")
                 .option("startingOffsets", "earliest")
-                .option("kafka.max.partition.fetch.bytes", "1048576")
-                .option("kafka.max.poll.records", "500")
-                .option("kafka.session.timeout.ms", "30000")
-                .option("kafka.heartbeat.interval.ms", "10000")
+                .option("maxOffsetsPerTrigger", "500")
+                .option("minPartitions", "1")
+                .option("maxPartitions", "2")
                 .load();
 
         LOGGER.info("Kafka source initialized. Parsing JSON data...");

@@ -77,13 +77,18 @@ public class AdEventsSimpleProcessor {
             eventCounts.computeIfAbsent(campaignId, k -> new ConcurrentHashMap<>())
                     .compute(eventType, (k, v) -> (v == null) ? 1 : v + 1);
             
+            // Convert Double to BigDecimal safely
+            BigDecimal bidAmount = adEvent.getBidAmountUsd() != null 
+                ? BigDecimal.valueOf(adEvent.getBidAmountUsd()) 
+                : BigDecimal.ZERO;
+                
             // Update bid amounts
             bidAmounts.computeIfAbsent(campaignId, k -> new ConcurrentHashMap<>())
                     .compute(eventType, (k, v) -> {
                         if (v == null) {
-                            return adEvent.getBidAmountUsd();
+                            return bidAmount;
                         } else {
-                            return v.add(adEvent.getBidAmountUsd());
+                            return v.add(bidAmount);
                         }
                     });
         } catch (Exception e) {
@@ -130,7 +135,7 @@ public class AdEventsSimpleProcessor {
                     AggregatedCampaignStats stats = existingStats.get();
                     stats.setEventCount(stats.getEventCount() + count);
                     stats.setTotalBidAmount(stats.getTotalBidAmount().add(totalBid));
-                    stats.setLastUpdated(now);
+                    stats.setUpdatedAt(now);
                     repository.save(stats);
                 } else {
                     // Create new record
@@ -141,7 +146,7 @@ public class AdEventsSimpleProcessor {
                             .windowEndTime(windowEndTime)
                             .eventCount(count)
                             .totalBidAmount(totalBid)
-                            .lastUpdated(now)
+                            .updatedAt(now)
                             .build();
                     repository.save(stats);
                 }

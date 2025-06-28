@@ -86,21 +86,43 @@ public class KafkaConsumerConfig {
     @Bean(name = "sparkKafkaConsumerProperties")
     public Map<String, String> sparkKafkaConsumerProperties() {
         Map<String, String> kafkaParams = new HashMap<>();
-        kafkaParams.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        kafkaParams.put(ConsumerConfig.GROUP_ID_CONFIG, groupId + "_spark"); // Separate group for Spark
-        kafkaParams.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        kafkaParams.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        // Optimize settings for Spark integration
-        kafkaParams.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
-        kafkaParams.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, autoOffsetReset);
-        kafkaParams.put(ConsumerConfig.FETCH_MAX_BYTES_CONFIG, String.valueOf(fetchMaxBytes));
-        kafkaParams.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, String.valueOf(maxPollRecords));
-        kafkaParams.put(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, String.valueOf(fetchMaxBytes));
-        kafkaParams.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, "1");
-        kafkaParams.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, "500");
-        // Settings to improve stability when working with Spark
-        kafkaParams.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, "30000"); // 30 seconds
-        kafkaParams.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, "10000"); // 10 seconds
+        kafkaParams.put("kafka.bootstrap.servers", bootstrapServers);
+        kafkaParams.put("subscribe", "ad-events");
+        kafkaParams.put("startingOffsets", "latest");
+        kafkaParams.put("failOnDataLoss", "false");
+        kafkaParams.put("maxOffsetsPerTrigger", "5000");
+        
+        // Use correct parameter names for Spark Structured Streaming
+        kafkaParams.put("kafka.fetch.max.bytes", String.valueOf(fetchMaxBytes));
+        kafkaParams.put("kafka.max.partition.fetch.bytes", String.valueOf(fetchMaxBytes));
+        
+        // These parameters are needed for Spark DStream API, but not for Structured Streaming
+        // Keep them for backward compatibility with DStream API
+        kafkaParams.put("key.deserializer", StringDeserializer.class.getName());
+        kafkaParams.put("value.deserializer", StringDeserializer.class.getName());
+        kafkaParams.put("group.id", groupId + "_spark");
+        kafkaParams.put("auto.offset.reset", autoOffsetReset);
+        kafkaParams.put("enable.auto.commit", "false");
+        kafkaParams.put("max.poll.records", String.valueOf(maxPollRecords));
+        
         return kafkaParams;
+    }
+    
+    /**
+     * Provides parameters for Spark Structured Streaming Kafka Source
+     * 
+     * @return Map with parameters for use in Spark Structured Streaming
+     */
+    @Bean(name = "sparkStructuredStreamingKafkaOptions")
+    public Map<String, String> sparkStructuredStreamingKafkaOptions() {
+        Map<String, String> options = new HashMap<>();
+        options.put("kafka.bootstrap.servers", bootstrapServers);
+        options.put("subscribe", "ad-events");
+        options.put("startingOffsets", "latest");
+        options.put("failOnDataLoss", "false");
+        options.put("maxOffsetsPerTrigger", "5000");
+        options.put("kafka.fetch.max.bytes", String.valueOf(fetchMaxBytes));
+        options.put("kafka.max.partition.fetch.bytes", String.valueOf(fetchMaxBytes));
+        return options;
     }
 }

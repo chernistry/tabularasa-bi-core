@@ -14,7 +14,7 @@ import java.util.Optional;
  * Repository interface for AggregatedCampaignStats entities.
  */
 @Repository
-public interface AggregatedCampaignStatsRepository extends JpaRepository<AggregatedCampaignStats, Long> {
+public interface AggregatedCampaignStatsRepository extends JpaRepository<AggregatedCampaignStats, Integer> {
 
     /**
      * Find statistics for a specific campaign and event type within a time window.

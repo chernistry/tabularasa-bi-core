@@ -1,20 +1,24 @@
 -- ==== AGGREGATED CAMPAIGN STATS TABLE DEFINITION ====
-CREATE TABLE IF NOT EXISTS aggregated_campaign_stats (
-    campaign_id VARCHAR NOT NULL,
-    event_type VARCHAR NOT NULL,
+CREATE TABLE aggregated_campaign_stats (
+    id SERIAL PRIMARY KEY,
+    campaign_id VARCHAR(255) NOT NULL,
+    event_type VARCHAR(50) NOT NULL,
     window_start_time TIMESTAMP NOT NULL,
-    event_count BIGINT NOT NULL DEFAULT 0,
-    total_bid_amount DECIMAL(18, 4) NOT NULL DEFAULT 0.0,
+    window_end_time TIMESTAMP NOT NULL,
+    event_count BIGINT NOT NULL,
+    total_bid_amount DECIMAL(18, 6) NOT NULL,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (campaign_id, event_type, window_start_time)
+    CONSTRAINT aggregated_campaign_stats_unique UNIQUE (campaign_id, event_type, window_start_time)
 );
 
 -- ==== INDEXES FOR QUERY PERFORMANCE ====
-CREATE INDEX IF NOT EXISTS idx_agg_stats_campaign_id ON aggregated_campaign_stats (campaign_id);
-CREATE INDEX IF NOT EXISTS idx_agg_stats_event_type ON aggregated_campaign_stats (event_type);
-CREATE INDEX IF NOT EXISTS idx_agg_stats_window_start_time ON aggregated_campaign_stats (window_start_time);
+CREATE INDEX idx_aggregated_campaign_stats_campaign_id ON aggregated_campaign_stats (campaign_id);
+CREATE INDEX idx_aggregated_campaign_stats_event_type ON aggregated_campaign_stats (event_type);
+CREATE INDEX idx_aggregated_campaign_stats_window ON aggregated_campaign_stats (window_start_time, window_end_time);
 
 -- ==== VIEW FOR DASHBOARD COMPATIBILITY ====
+DROP VIEW IF EXISTS v_aggregated_campaign_stats;
+
 CREATE OR REPLACE VIEW v_aggregated_campaign_stats AS
 SELECT
   campaign_id,
@@ -36,4 +40,7 @@ SELECT
   total_bid_amount * 0.85 as total_sales_amount_euro,
   CASE WHEN event_type = 'conversion' THEN event_count ELSE 0 END as total_sales_count,
   updated_at
-FROM aggregated_campaign_stats; 
+FROM aggregated_campaign_stats;
+
+-- Grant permissions if needed
+-- GRANT ALL PRIVILEGES ON TABLE aggregated_campaign_stats TO tabulauser; 

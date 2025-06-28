@@ -8,6 +8,7 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.sql.*;
+import org.apache.spark.sql.streaming.DataStreamReader;
 import org.apache.spark.sql.streaming.OutputMode;
 import org.apache.spark.sql.streaming.StreamingQuery;
 import org.apache.spark.sql.streaming.StreamingQueryException;
@@ -23,6 +24,7 @@ import io.micrometer.core.instrument.Timer;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import jakarta.annotation.PreDestroy;
 
 import javax.sql.DataSource;
@@ -47,6 +49,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.commons.dbcp2.BasicDataSource;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * Service for processing ad events using Spark Core API.
@@ -67,6 +70,8 @@ public class AdEventSparkStreamer {
     private final BasicDataSource dataSource;
     private final ReentrantLock shutdownLock = new ReentrantLock();
     private final ThreadPoolTaskExecutor taskExecutor;
+    private final JdbcTemplate jdbcTemplate;
+    private final Map<String, String> kafkaOptions;
 
     @Value("${spring.datasource.url}")
     private String dbUrl;
@@ -89,10 +94,17 @@ public class AdEventSparkStreamer {
     private static final String POSTGRES_DRIVER = "org.postgresql.Driver";
 
     @Autowired
-    public AdEventSparkStreamer(SparkSession sparkSession, MeterRegistry meterRegistry, Tracer tracer) {
+    public AdEventSparkStreamer(
+            SparkSession sparkSession, 
+            MeterRegistry meterRegistry, 
+            Tracer tracer, 
+            JdbcTemplate jdbcTemplate,
+            @Qualifier("sparkStructuredStreamingKafkaOptions") Map<String, String> kafkaOptions) {
         this.sparkSession = sparkSession;
         this.meterRegistry = meterRegistry;
         this.tracer = tracer;
+        this.jdbcTemplate = jdbcTemplate;
+        this.kafkaOptions = kafkaOptions;
         this.processedEventsCounter = meterRegistry.counter("app.events.processed", "type", "ad_event");
         this.failedEventsCounter = meterRegistry.counter("app.events.failed", "type", "ad_event");
         this.batchProcessingTimer = meterRegistry.timer("app.events.batch.processing.time", "type", "ad_event");
@@ -124,6 +136,57 @@ public class AdEventSparkStreamer {
         this.dataSource.setRemoveAbandonedOnBorrow(true);
         this.dataSource.setRemoveAbandonedTimeout(60);
         this.dataSource.setLogAbandoned(true);
+        
+        // Check and fix database schema issues
+        try {
+            fixDatabaseSchema();
+        } catch (Exception e) {
+            log.warn("Failed to fix database schema: {}", e.getMessage());
+        }
+    }
+    
+    /**
+     * Fix database schema issues by dropping the view that depends on the table
+     */
+    private void fixDatabaseSchema() {
+        try {
+            // Check if view exists and drop it if necessary
+            boolean viewExists = jdbcTemplate.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM pg_views WHERE viewname = 'v_aggregated_campaign_stats')", 
+                Boolean.class);
+                
+            if (viewExists) {
+                log.info("Found view v_aggregated_campaign_stats that depends on our table. Dropping it to prevent schema conflicts.");
+                jdbcTemplate.execute("DROP VIEW IF EXISTS v_aggregated_campaign_stats");
+                log.info("View dropped successfully");
+            }
+            
+            // Check if table exists and create it if needed
+            boolean tableExists = jdbcTemplate.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'aggregated_campaign_stats')", 
+                Boolean.class);
+                
+            if (!tableExists) {
+                log.info("Creating aggregated_campaign_stats table");
+                jdbcTemplate.execute(
+                    "CREATE TABLE IF NOT EXISTS aggregated_campaign_stats (" +
+                    "id SERIAL PRIMARY KEY, " +
+                    "campaign_id VARCHAR(255) NOT NULL, " +
+                    "event_type VARCHAR(50) NOT NULL, " +
+                    "window_start_time TIMESTAMP NOT NULL, " +
+                    "window_end_time TIMESTAMP NOT NULL, " +
+                    "event_count BIGINT NOT NULL, " +
+                    "total_bid_amount DECIMAL(18, 6) NOT NULL, " +
+                    "updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
+                    "CONSTRAINT aggregated_campaign_stats_unique UNIQUE (campaign_id, event_type, window_start_time)" +
+                    ")"
+                );
+                log.info("Table created successfully");
+            }
+        } catch (Exception e) {
+            log.error("Error fixing database schema", e);
+            throw e;
+        }
     }
 
     public void startStream() throws TimeoutException {
@@ -145,20 +208,23 @@ public class AdEventSparkStreamer {
                     .add("user_id", DataTypes.StringType)
                     .add("bid_amount_usd", DataTypes.DoubleType);
                 
+                // Create options for Kafka considering injected parameters
+                Map<String, String> options = new HashMap<>(kafkaOptions);
+                // Override the topic if it is not set in kafkaOptions
+                if (!options.containsKey("subscribe")) {
+                    options.put("subscribe", inputTopic);
+                }
+                
                 // Create stream from Kafka with corrected settings
-                Dataset<Row> kafkaStream = sparkSession
-                    .readStream()
-                    .format("kafka")
-                    .option("kafka.bootstrap.servers", kafkaBootstrapServers)
-                    .option("subscribe", inputTopic)
-                    .option("startingOffsets", "latest") // Changed from "earliest" to "latest"
-                    .option("failOnDataLoss", "false")
-                    .option("maxOffsetsPerTrigger", "5000")
-                    // Use correct format for Kafka options
-                    .option("kafka.fetch.message.max.bytes", "5242880")
-                    .option("kafka.max.partition.fetch.bytes", "5242880")
-                    .option("kafka.auto.offset.reset", "latest") // Add explicit setting for offset reset
-                    .load();
+                DataStreamReader streamReader = sparkSession.readStream().format("kafka");
+                
+                // Apply all options from configuration
+                for (Map.Entry<String, String> option : options.entrySet()) {
+                    streamReader = streamReader.option(option.getKey(), option.getValue());
+                }
+                
+                // Load data
+                Dataset<Row> kafkaStream = streamReader.load();
                 
                 // Extract JSON from Kafka and parse it
                 Dataset<Row> jsonStream = kafkaStream
@@ -198,81 +264,78 @@ public class AdEventSparkStreamer {
                     .foreachBatch((batchDF, batchId) -> {
                         Timer.Sample sample = Timer.start();
                         log.info("Processing batch ID: {}", batchId);
-                        if (batchDF.isEmpty()) {
-                            log.info("Batch {} is empty, skipping.", batchId);
-                            return;
-                        }
-
-                        // Use a small number of partitions for local processing
-                        Dataset<Row> optimizedDF = batchDF.coalesce(2);
                         
-                        // Cache data in memory
-                        optimizedDF.persist();
-                        
-                        long totalEventsInBatch = 0;
+                        // Check for empty DataFrame without calling isEmpty()
                         try {
-                            // Use a safe approach to extract values
-                            Row firstRow = null;
-                            try {
-                                firstRow = optimizedDF.selectExpr("sum(event_count)").first();
-                            } catch (InterruptedException e) {
-                                log.warn("Operation was interrupted while calculating batch size. Processing will continue with default metrics.", e);
+                            long count = batchDF.count();
+                            if (count == 0) {
+                                log.info("Batch {} is empty, skipping.", batchId);
+                                return;
                             }
                             
-                            if (firstRow != null && !firstRow.isNullAt(0)) {
-                                totalEventsInBatch = firstRow.getLong(0);
+                            // Use a small number of partitions for local processing
+                            Dataset<Row> optimizedDF = batchDF.coalesce(2);
+                            
+                            // Cache data in memory
+                            optimizedDF.persist();
+                            
+                            long totalEventsInBatch = 0;
+                            try {
+                                // Use a safe approach for extracting values
+                                totalEventsInBatch = optimizedDF.agg(functions.sum("event_count")).first().getLong(0);
                                 log.info("Batch {} contains {} events", batchId, totalEventsInBatch);
                                 processedEventsCounter.increment(totalEventsInBatch);
-                            } else {
-                                log.info("Batch {} - could not determine event count, using default", batchId);
+                            } catch (Exception e) {
+                                log.warn("Could not calculate total events in batch. Will proceed with processing anyway.", e);
                                 processedEventsCounter.increment(); // Increment counter by 1 by default
                             }
-                        } catch (Exception e) {
-                            log.warn("Could not calculate total events in batch. Will proceed with processing anyway.", e);
-                        }
-                        
-                        // Use static method for data processing, avoiding capture of this
-                        try {
-                            // Add retries for resilience
-                            int retries = 0;
-                            boolean success = false;
-                            Exception lastError = null;
                             
-                            while (!success && retries < 3) {
-                                try {
-                                    // Call static method instead of instance method
-                                    processBatchStatically(optimizedDF, dbConfig);
-                                    success = true;
-                                } catch (Exception e) {
-                                    retries++;
-                                    lastError = e;
-                                    log.warn("Error processing batch (attempt {}/3): {}", retries, e.getMessage());
-                                    if (retries < 3) {
-                                        Thread.sleep(1000 * retries); // Exponential backoff
+                            // Use static method for data processing, avoiding capture of this
+                            try {
+                                // Add retries for resilience
+                                int retries = 0;
+                                boolean success = false;
+                                Exception lastError = null;
+                                
+                                while (!success && retries < 3) {
+                                    try {
+                                        // Call static method instead of instance method
+                                        processBatchStatically(optimizedDF, dbConfig);
+                                        success = true;
+                                    } catch (Exception e) {
+                                        retries++;
+                                        lastError = e;
+                                        log.warn("Error processing batch (attempt {}/3): {}", retries, e.getMessage());
+                                        if (retries < 3) {
+                                            Thread.sleep(1000 * retries); // Exponential backoff
+                                        }
                                     }
                                 }
+                                
+                                if (!success) {
+                                    failedEventsCounter.increment(totalEventsInBatch > 0 ? totalEventsInBatch : 1);
+                                    log.error("Failed to process batch after 3 attempts", lastError);
+                                }
+                            } catch (InterruptedException e) {
+                                log.warn("Batch processing was interrupted", e);
+                                Thread.currentThread().interrupt(); // Restore interrupt flag
+                            } finally {
+                                // Always release resources in finally block
+                                try {
+                                    optimizedDF.unpersist();
+                                } catch (Exception e) {
+                                    log.warn("Error unpersisting dataframe: {}", e.getMessage());
+                                }
+                                
+                                try {
+                                    sample.stop(batchProcessingTimer);
+                                } catch (Exception e) {
+                                    log.warn("Error stopping timer: {}", e.getMessage());
+                                }
                             }
-                            
-                            if (!success) {
-                                failedEventsCounter.increment(totalEventsInBatch > 0 ? totalEventsInBatch : 1);
-                                log.error("Failed to process batch after 3 attempts", lastError);
-                            }
-                        } catch (InterruptedException e) {
-                            log.warn("Batch processing was interrupted", e);
-                            Thread.currentThread().interrupt(); // Restore interrupt flag
-                        } finally {
-                            // Always release resources in finally block
-                            try {
-                                optimizedDF.unpersist();
-                            } catch (Exception e) {
-                                log.warn("Error unpersisting dataframe: {}", e.getMessage());
-                            }
-                            
-                            try {
-                                sample.stop(batchProcessingTimer);
-                            } catch (Exception e) {
-                                log.warn("Error stopping timer: {}", e.getMessage());
-                            }
+                        } catch (Exception e) {
+                            log.error("Error processing batch: {}", e.getMessage(), e);
+                            failedEventsCounter.increment();
                         }
                     })
                     .start();
@@ -331,7 +394,7 @@ public class AdEventSparkStreamer {
         // Reduce the number of partitions for efficient processing
         Dataset<Row> cachedDF = batchDF.coalesce(2).cache();
         
-        // Prepare SQL query for insert/update
+        // Prepare SQL query for insert/update with proper handling of view dependency
         final String insertSql =
             "INSERT INTO aggregated_campaign_stats " +
             "(campaign_id, event_type, window_start_time, window_end_time, event_count, total_bid_amount, updated_at) " +

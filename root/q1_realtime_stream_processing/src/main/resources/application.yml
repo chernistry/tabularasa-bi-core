@@ -4,21 +4,32 @@ spring:
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:simple}
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/tabularasadb}
-    username: ${SPRING_DATASOURCE_USERNAME:tabulauser}
-    password: ${SPRING_DATASOURCE_PASSWORD:tabulapass}
+    url: jdbc:postgresql://localhost:5432/tabularasadb
+    username: tabulauser
+    password: tabulapass
     driver-class-name: org.postgresql.Driver
     hikari:
       # Optimize connection pool
       maximum-pool-size: 10
       minimum-idle: 2
-      connection-timeout: 10000
-      idle-timeout: 300000
-      max-lifetime: 600000
-      auto-commit: true
-      pool-name: HikariPool-Q1StreamProcessor
+      idle-timeout: 30000
+      connection-timeout: 20000
+      max-lifetime: 1200000
+  jpa:
+    hibernate:
+      ddl-auto: validate # Prevents automatic schema updates
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        jdbc:
+          batch_size: 50
+          batch_versioned_data: true
+        order_inserts: true
+        order_updates: true
+    show-sql: false
   kafka:
-    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:19092}
+    bootstrap-servers: localhost:19092
     consumer:
       group-id: q1_stream_consumer_group
       auto-offset-reset: earliest
@@ -26,34 +37,42 @@ spring:
       max-poll-records: 500
     producer:
       acks: all
+      retries: 3
       batch-size: 16384
       buffer-memory: 33554432
-      compression-type: lz4
 
 # Application
 app:
   kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:${spring.kafka.bootstrap-servers}}
+    bootstrap-servers: ${spring.kafka.bootstrap-servers}
     topics:
       ad-events: ad-events
 
 # Settings for Spark
 spark:
   app:
-    name: tabularasa-bi-q1-spark-processor
-  master: ${SPARK_MASTER:local[*]}
+    name: TabularasaBIStreamProcessor
+  master: local[2]
   driver:
-    memory: ${SPARK_DRIVER_MEMORY:1g}
+    memory: 1g
   executor:
-    memory: ${SPARK_EXECUTOR_MEMORY:1g}
-    cores: ${SPARK_EXECUTOR_CORES:2}
+    memory: 1g
+    cores: 1
   default:
-    parallelism: ${SPARK_DEFAULT_PARALLELISM:4}
+    parallelism: 2
   sql:
     shuffle:
-      partitions: ${SPARK_SQL_SHUFFLE_PARTITIONS:4}
+      partitions: 2
   streaming:
-    checkpoint-location: ${SPARK_STREAMING_CHECKPOINT_LOCATION:/tmp/spark_checkpoints}
+    checkpoint-location: /tmp/spark_checkpoints
+    backpressure:
+      enabled: true
+    kafka:
+      maxRatePerPartition: 100
+    unpersist: true
+  serializer: org.apache.spark.serializer.KryoSerializer
+  kryo:
+    registrator: com.tabularasa.bi.q1_realtime_stream_processing.serialization.KryoRegistrator
 
 # Settings for logging
 logging:
