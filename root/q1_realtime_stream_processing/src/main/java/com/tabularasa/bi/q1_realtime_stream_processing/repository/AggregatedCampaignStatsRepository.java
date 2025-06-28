@@ -51,6 +51,6 @@ public interface AggregatedCampaignStatsRepository extends JpaRepository<Aggrega
      * @param endTime End of the time range
      * @return List of aggregated statistics
      */
-    @Query("SELECT a FROM AggregatedCampaignStats a WHERE a.windowStartTime >= :startTime AND a.windowEndTime <= :endTime")
+    @Query(value = "SELECT * FROM aggregated_campaign_stats WHERE window_start_time >= :startTime AND window_end_time <= :endTime", nativeQuery = true)
     List<AggregatedCampaignStats> findInTimeRange(@Param("startTime") LocalDateTime startTime, @Param("endTime") LocalDateTime endTime);
 } 

@@ -45,7 +45,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Profile("spark")
 public class AdEventSparkStreamer {
 
-    private final JavaSparkContext sparkContext;
     private final SparkSession sparkSession;
     private final MeterRegistry meterRegistry;
     private final Tracer tracer;
@@ -76,8 +75,7 @@ public class AdEventSparkStreamer {
     private static final String POSTGRES_DRIVER = "org.postgresql.Driver";
 
     @Autowired
-    public AdEventSparkStreamer(JavaSparkContext sparkContext, SparkSession sparkSession, MeterRegistry meterRegistry, Tracer tracer) {
-        this.sparkContext = sparkContext;
+    public AdEventSparkStreamer(SparkSession sparkSession, MeterRegistry meterRegistry, Tracer tracer) {
         this.sparkSession = sparkSession;
         this.meterRegistry = meterRegistry;
         this.tracer = tracer;
@@ -117,93 +115,93 @@ public class AdEventSparkStreamer {
                 Dataset<Row> jsonStream = kafkaStream
                     .selectExpr("CAST(value AS STRING) as json")
                     .select(functions.from_json(functions.col("json"), schema).as("data"))
-                    .select("data.*");
+                    .select("data.*")
+                    .filter(functions.col("campaign_id").isNotNull());
                 
                 // Регистрируем временную таблицу для SQL-запросов
                 jsonStream.createOrReplaceTempView("ad_events");
                 
                 // Агрегируем данные по campaign_id и event_type
-                Dataset<Row> aggregatedData = sparkSession.sql(
-                    "SELECT campaign_id, event_type, " +
-                    "window(timestamp, '1 minute') as window, " +
-                    "count(*) as event_count, " +
-                    "sum(bid_amount_usd) as total_bid_amount " +
-                    "FROM ad_events " +
-                    "GROUP BY campaign_id, event_type, window"
-                );
+                Dataset<Row> aggregatedData = jsonStream
+                    .withWatermark("timestamp", "1 minute")
+                    .groupBy(
+                        functions.window(functions.col("timestamp"), "1 minute"),
+                        functions.col("campaign_id"),
+                        functions.col("event_type")
+                    )
+                    .agg(
+                        functions.count("*").as("event_count"),
+                        functions.sum("bid_amount_usd").as("total_bid_amount")
+                    );
                 
                 // Функция для записи каждого батча в PostgreSQL
-                ForeachWriter<Row> postgresWriter = new ForeachWriter<Row>() {
-                    private Connection connection;
-                    private PreparedStatement statement;
-                    private final String insertSql = 
-                        "INSERT INTO aggregated_campaign_stats " +
-                        "(campaign_id, event_type, window_start_time, event_count, total_bid_amount, updated_at) " +
-                        "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP) " +
-                        "ON CONFLICT (campaign_id, event_type, window_start_time) DO UPDATE " +
-                        "SET event_count = aggregated_campaign_stats.event_count + EXCLUDED.event_count, " +
-                        "total_bid_amount = aggregated_campaign_stats.total_bid_amount + EXCLUDED.total_bid_amount, " +
-                        "updated_at = CURRENT_TIMESTAMP";
-                    
-                    @Override
-                    public boolean open(long partitionId, long epochId) {
-                        try {
-                            Class.forName(POSTGRES_DRIVER);
-                            connection = DriverManager.getConnection(dbUrl, dbUser, dbPassword);
-                            statement = connection.prepareStatement(insertSql);
-                            return true;
-                        } catch (Exception e) {
-                            log.error("Error opening database connection", e);
-                            return false;
-                        }
-                    }
-                    
-                    @Override
-                    public void process(Row row) {
-                        try {
-                            // Извлекаем данные из Row
-                            String campaignId = row.getAs("campaign_id");
-                            String eventType = row.getAs("event_type");
-                            Row window = row.getAs("window");
-                            java.sql.Timestamp windowStart = window.getAs("start");
-                            Long eventCount = row.getAs("event_count");
-                            Double totalBidAmount = row.getAs("total_bid_amount");
-                            
-                            // Заполняем PreparedStatement
-                            statement.setString(1, campaignId);
-                            statement.setString(2, eventType);
-                            statement.setTimestamp(3, windowStart);
-                            statement.setLong(4, eventCount);
-                            statement.setBigDecimal(5, new java.math.BigDecimal(totalBidAmount));
-                            
-                            // Выполняем запрос
-                            statement.executeUpdate();
-                            
-                            // Увеличиваем счетчик обработанных событий
-                            processedEventsCounter.increment(eventCount);
-                            
-                        } catch (SQLException e) {
-                            log.error("Error writing to database", e);
-                            failedEventsCounter.increment();
-                        }
-                    }
-                    
-                    @Override
-                    public void close(Throwable errorOrNull) {
-                        try {
-                            if (statement != null) statement.close();
-                            if (connection != null) connection.close();
-                        } catch (SQLException e) {
-                            log.error("Error closing database connection", e);
-                        }
-                    }
-                };
-                
-                // Запускаем стрим и записываем результаты в PostgreSQL
                 this.streamingQuery = aggregatedData
                     .writeStream()
                     .outputMode(OutputMode.Update())
-                    .foreach(postgresWriter)
+                    .foreachBatch((batchDF, batchId) -> {
+                        log.info("Processing batch ID: {}", batchId);
+                        if (batchDF.isEmpty()) {
+                            log.info("Batch {} is empty, skipping.", batchId);
+                            return;
+                        }
+
+                        batchDF.persist();
+                        
+                        long totalEventsInBatch = 0;
+                        try {
+                             totalEventsInBatch = batchDF.selectExpr("sum(event_count)").first().getLong(0);
+                        } catch (Exception e) {
+                            log.warn("Could not calculate total events in batch, maybe it was empty.", e);
+                        }
+                        
+                        processedEventsCounter.increment(totalEventsInBatch);
+                        
+                        final String url = dbUrl;
+                        final String user = dbUser;
+                        final String pwd = dbPassword;
+
+                        try {
+                            batchDF.foreachPartition(partition -> {
+                                try (Connection connection = DriverManager.getConnection(url, user, pwd)) {
+                                    Class.forName(POSTGRES_DRIVER);
+                                    String insertSql =
+                                        "INSERT INTO aggregated_campaign_stats " +
+                                        "(campaign_id, event_type, window_start_time, event_count, total_bid_amount, updated_at) " +
+                                        "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP) " +
+                                        "ON CONFLICT (campaign_id, event_type, window_start_time) DO UPDATE " +
+                                        "SET event_count = aggregated_campaign_stats.event_count + EXCLUDED.event_count, " +
+                                        "total_bid_amount = aggregated_campaign_stats.total_bid_amount + EXCLUDED.total_bid_amount, " +
+                                        "updated_at = CURRENT_TIMESTAMP";
+
+                                    try (PreparedStatement statement = connection.prepareStatement(insertSql)) {
+                                        int batchSize = 0;
+                                        while (partition.hasNext()) {
+                                            Row row = partition.next();
+                                            Row window = row.getAs("window");
+                                            statement.setString(1, row.getAs("campaign_id"));
+                                            statement.setString(2, row.getAs("event_type"));
+                                            statement.setTimestamp(3, window.getAs("start"));
+                                            statement.setLong(4, row.getAs("event_count"));
+                                            statement.setBigDecimal(5, row.getAs("total_bid_amount"));
+                                            statement.addBatch();
+                                            batchSize++;
+                                            if (batchSize % 1000 == 0) {
+                                                statement.executeBatch();
+                                                statement.clearBatch();
+                                            }
+                                        }
+                                        statement.executeBatch();
+                                    }
+                                } catch (Exception e) {
+                                    System.err.println("Failed to write partition to database: " + e.getMessage());
+                                    e.printStackTrace(System.err);
+                                    throw new RuntimeException(e);
+                                }
+                            });
+                        } finally {
+                            batchDF.unpersist();
+                        }
+                    })
                     .option("checkpointLocation", checkpointLocation)
                     .trigger(Trigger.ProcessingTime("10 seconds"))
                     .start();

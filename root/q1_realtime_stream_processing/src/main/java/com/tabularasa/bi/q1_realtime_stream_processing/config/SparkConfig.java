@@ -6,6 +6,7 @@ import org.apache.spark.sql.SparkSession;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Profile;
 import lombok.extern.slf4j.Slf4j;
 
@@ -21,30 +22,28 @@ public class SparkConfig {
     private String master;
 
     @Bean
-    public SparkConf sparkConf() {
-        return new SparkConf()
-                .setAppName(appName)
-                .setMaster(master)
-                .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
-                .set("spark.kryo.registrator", com.tabularasa.bi.q1_realtime_stream_processing.serialization.KryoRegistrator.class.getName())
-                .set("spark.ui.enabled", "false")
-                .set("spark.metrics.conf", "classpath:metrics.properties");
+    @Primary
+    public SparkSession sparkSession() {
+        log.info("Creating SparkSession with app name: {}, master: {}", appName, master);
+        return SparkSession.builder()
+                .appName(appName)
+                .master(master)
+                .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+                .config("spark.kryo.registrator", com.tabularasa.bi.q1_realtime_stream_processing.serialization.KryoRegistrator.class.getName())
+                .config("spark.ui.enabled", "false")
+                .config("spark.metrics.staticSources.enabled", "false")
+                .getOrCreate();
     }
     
     @Bean
-    public JavaSparkContext javaSparkContext(SparkConf sparkConf) {
+    public JavaSparkContext javaSparkContext(SparkSession sparkSession) {
         try {
-            return new JavaSparkContext(sparkConf);
+            log.info("Creating JavaSparkContext from SparkSession");
+            // Используем существующий SparkContext из SparkSession
+            return new JavaSparkContext(sparkSession.sparkContext());
         } catch (Exception e) {
             log.error("Failed to create JavaSparkContext", e);
             throw e;
         }
-    }
-
-    @Bean
-    public SparkSession sparkSession(SparkConf sparkConf) {
-        return SparkSession.builder()
-                .config(sparkConf)
-                .getOrCreate();
     }
 }

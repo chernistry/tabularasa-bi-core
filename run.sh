@@ -207,6 +207,7 @@ function run_prod() {
        --add-opens=java.base/sun.nio.ch=ALL-UNNAMED \
        --add-opens=java.base/java.nio=ALL-UNNAMED \
        --add-opens=java.base/java.lang.invoke=ALL-UNNAMED \
+       --add-opens=java.base/sun.security.action=ALL-UNNAMED \
        -Dspring.profiles.active="$profile" \
        -Dspark.master="$spark_master_url" \
        -Dspark.driver.memory=1g \
