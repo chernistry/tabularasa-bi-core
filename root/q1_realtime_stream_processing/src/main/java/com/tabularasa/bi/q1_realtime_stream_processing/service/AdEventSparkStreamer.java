@@ -27,6 +27,8 @@ import jakarta.annotation.PreDestroy;
 
 import javax.sql.DataSource;
 import java.io.IOException;
+import java.io.Serializable;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -34,6 +36,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -116,6 +119,8 @@ public class AdEventSparkStreamer {
             log.info("Initializing Spark Structured Streaming for topic [{}]", inputTopic);
             
             try {
+                // Очищаем директорию контрольных точек для предотвращения проблем с устаревшими смещениями
+                clearCheckpointDirectory();
                 createCheckpointDirectory();
                 
                 // Определяем схему JSON для событий
@@ -128,17 +133,19 @@ public class AdEventSparkStreamer {
                     .add("user_id", DataTypes.StringType)
                     .add("bid_amount_usd", DataTypes.DoubleType);
                 
-                // Создаем стрим из Kafka с оптимизированными настройками
+                // Создаем стрим из Kafka с исправленными настройками
                 Dataset<Row> kafkaStream = sparkSession
                     .readStream()
                     .format("kafka")
                     .option("kafka.bootstrap.servers", kafkaBootstrapServers)
                     .option("subscribe", inputTopic)
-                    .option("startingOffsets", "earliest")
+                    .option("startingOffsets", "latest") // Изменено с "earliest" на "latest"
                     .option("failOnDataLoss", "false")
-                    .option("maxOffsetsPerTrigger", "5000")     // Уменьшаем для лучшего контроля нагрузки
-                    .option("kafka.fetch.message.max.bytes", "5242880") // Уменьшаем размер данных
-                    .option("kafka.max.partition.fetch.bytes", "5242880")
+                    .option("maxOffsetsPerTrigger", "5000")
+                    // Исправляем формат опций Kafka, удаляя префикс "kafka."
+                    .option("fetch.message.max.bytes", "5242880")
+                    .option("max.partition.fetch.bytes", "5242880")
+                    .option("auto.offset.reset", "latest") // Добавляем явную настройку для сброса смещений
                     .load();
                 
                 // Извлекаем JSON из Kafka и парсим его
@@ -166,6 +173,9 @@ public class AdEventSparkStreamer {
                         functions.sum("bid_amount_usd").as("total_bid_amount")
                     )
                     .withColumn("processing_time", functions.current_timestamp());
+                
+                // Создаем сериализуемый объект с параметрами подключения к БД
+                final DatabaseConfig dbConfig = new DatabaseConfig(dbUrl, dbUser, dbPassword);
                 
                 // Используем foreachBatch с оптимизированным пулом соединений
                 this.streamingQuery = aggregatedData
@@ -197,7 +207,7 @@ public class AdEventSparkStreamer {
                         
                         processedEventsCounter.increment(totalEventsInBatch);
                         
-                        // Используем общий пул соединений, а не создаем новое соединение для каждой партиции
+                        // Используем статический метод для обработки данных, избегая захвата this
                         try {
                             // Добавляем повторные попытки для устойчивости
                             int retries = 0;
@@ -206,7 +216,8 @@ public class AdEventSparkStreamer {
                             
                             while (!success && retries < 3) {
                                 try {
-                                    processBatchWithConnectionPool(optimizedDF);
+                                    // Вызываем статический метод вместо метода экземпляра
+                                    processBatchStatically(optimizedDF, dbConfig);
                                     success = true;
                                 } catch (Exception e) {
                                     retries++;
@@ -243,29 +254,62 @@ public class AdEventSparkStreamer {
     }
     
     /**
-     * Обрабатывает пакет данных с использованием пула соединений для улучшения производительности.
+     * Статический класс для хранения параметров подключения к базе данных.
+     * Должен быть сериализуемым для передачи на рабочие узлы Spark.
+     */
+    private static class DatabaseConfig implements Serializable {
+        private static final long serialVersionUID = 1L;
+        
+        private final String url;
+        private final String username;
+        private final String password;
+        
+        public DatabaseConfig(String url, String username, String password) {
+            this.url = url;
+            this.username = username;
+            this.password = password;
+        }
+        
+        public String getUrl() {
+            return url;
+        }
+        
+        public String getUsername() {
+            return username;
+        }
+        
+        public String getPassword() {
+            return password;
+        }
+    }
+    
+    /**
+     * Статический метод для обработки партиций данных.
+     * Не захватывает экземпляр класса, поэтому может быть сериализован и отправлен на рабочие узлы.
      *
      * @param batchDF Набор данных для обработки
+     * @param dbConfig Параметры подключения к базе данных
      */
-    private void processBatchWithConnectionPool(Dataset<Row> batchDF) {
+    private static void processBatchStatically(Dataset<Row> batchDF, DatabaseConfig dbConfig) {
         // Уменьшаем количество партиций для эффективной обработки
         Dataset<Row> cachedDF = batchDF.coalesce(2).cache();
         
         // Готовим SQL запрос для вставки/обновления
         final String insertSql =
             "INSERT INTO aggregated_campaign_stats " +
-            "(campaign_id, event_type, window_start_time, event_count, total_bid_amount, updated_at) " +
-            "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP) " +
+            "(campaign_id, event_type, window_start_time, window_end_time, event_count, total_bid_amount, updated_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) " +
             "ON CONFLICT (campaign_id, event_type, window_start_time) DO UPDATE " +
-            "SET event_count = aggregated_campaign_stats.event_count + EXCLUDED.event_count, " +
-            "total_bid_amount = aggregated_campaign_stats.total_bid_amount + EXCLUDED.total_bid_amount, " +
+            "SET event_count = aggregated_campaign_stats.event_count + COALESCE(EXCLUDED.event_count, 0), " +
+            "total_bid_amount = COALESCE(aggregated_campaign_stats.total_bid_amount, 0) + COALESCE(EXCLUDED.total_bid_amount, 0), " +
             "updated_at = CURRENT_TIMESTAMP";
         
         try {
-            // Используем foreachPartition для пакетной обработки с пулом соединений
+            // Используем foreachPartition для пакетной обработки
             cachedDF.foreachPartition(partition -> {
-                // Используем соединение из пула для всей партиции
-                try (Connection connection = dataSource.getConnection();
+                // Создаем соединение для каждой партиции
+                try (Connection connection = DriverManager.getConnection(
+                        dbConfig.getUrl(), dbConfig.getUsername(), dbConfig.getPassword());
                      PreparedStatement statement = connection.prepareStatement(insertSql)) {
                     
                     connection.setAutoCommit(false);
@@ -278,13 +322,20 @@ public class AdEventSparkStreamer {
                         statement.setString(1, row.getAs("campaign_id"));
                         statement.setString(2, row.getAs("event_type"));
                         statement.setTimestamp(3, window.getAs("start"));
-                        statement.setLong(4, row.getAs("event_count"));
-                        statement.setBigDecimal(5, row.getAs("total_bid_amount"));
+                        statement.setTimestamp(4, window.getAs("end"));
+                        statement.setLong(5, row.getAs("event_count"));
+                        
+                        // Обрабатываем null значения для total_bid_amount
+                        Double bidAmount = row.getAs("total_bid_amount");
+                        statement.setBigDecimal(6, bidAmount == null ? 
+                                               java.math.BigDecimal.ZERO : 
+                                               java.math.BigDecimal.valueOf(bidAmount));
+                        
                         statement.addBatch();
                         batchSize++;
                         totalRows++;
                         
-                        // Выполняем пакет запросов каждые 200 строк (уменьшено для снижения нагрузки)
+                        // Выполняем пакет запросов каждые 200 строк
                         if (batchSize >= 200) {
                             try {
                                 statement.executeBatch();
@@ -292,7 +343,7 @@ public class AdEventSparkStreamer {
                             } catch (SQLException e) {
                                 log.error("Error executing batch: {}", e.getMessage());
                                 connection.rollback();
-                                throw e; // Перебрасываем для обработки выше
+                                throw e;
                             }
                             statement.clearBatch();
                             batchSize = 0;
@@ -313,8 +364,7 @@ public class AdEventSparkStreamer {
                     
                     log.debug("Processed {} rows in partition", totalRows);
                 } catch (SQLException e) {
-                    log.error("Failed to write partition to database", e);
-                    failedEventsCounter.increment();
+                    log.error("Failed to write partition to database: {}", e.getMessage(), e);
                     throw new RuntimeException("Database error while processing partition", e);
                 }
             });
@@ -323,6 +373,41 @@ public class AdEventSparkStreamer {
             // Освобождаем ресурсы кэша
             cachedDF.unpersist();
         }
+    }
+    
+    /**
+     * Очищает директорию контрольных точек для предотвращения проблем с устаревшими смещениями.
+     */
+    private void clearCheckpointDirectory() {
+        Path checkpointPath = Paths.get(checkpointLocation);
+        if (Files.exists(checkpointPath)) {
+            try {
+                log.info("Clearing checkpoint directory: {}", checkpointPath.toAbsolutePath());
+                Files.walk(checkpointPath)
+                    .sorted(Comparator.reverseOrder())
+                    .forEach(path -> {
+                        try {
+                            Files.delete(path);
+                        } catch (IOException e) {
+                            log.warn("Could not delete checkpoint file: {}", path, e);
+                        }
+                    });
+                log.info("Checkpoint directory cleared successfully");
+            } catch (IOException e) {
+                log.warn("Could not clear checkpoint directory: {}", checkpointPath, e);
+            }
+        }
+    }
+    
+    /**
+     * Обрабатывает пакет данных с использованием пула соединений для улучшения производительности.
+     * @deprecated Используйте статический метод processBatchStatically вместо этого метода
+     * @param batchDF Набор данных для обработки
+     */
+    @Deprecated
+    private void processBatchWithConnectionPool(Dataset<Row> batchDF) {
+        // Метод оставлен для обратной совместимости, но не должен использоваться
+        throw new UnsupportedOperationException("This method is deprecated. Use processBatchStatically instead.");
     }
     
     @PreDestroy
