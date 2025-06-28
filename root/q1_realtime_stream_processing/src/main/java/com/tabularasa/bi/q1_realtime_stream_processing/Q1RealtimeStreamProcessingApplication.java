@@ -7,9 +7,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Profile;
+import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.concurrent.TimeUnit;
 
@@ -25,6 +28,8 @@ import java.util.concurrent.TimeUnit;
  */
 @SpringBootApplication
 @EnableScheduling
+@EnableAsync
+@ConfigurationPropertiesScan
 public class Q1RealtimeStreamProcessingApplication {
 
     private static final Logger log = LoggerFactory.getLogger(Q1RealtimeStreamProcessingApplication.class);
@@ -37,6 +42,19 @@ public class Q1RealtimeStreamProcessingApplication {
             // Optionally, force exit if startup fails critically
             System.exit(1);
         }
+    }
+
+    @Bean
+    public ThreadPoolTaskExecutor applicationTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(4);
+        executor.setMaxPoolSize(10);
+        executor.setQueueCapacity(50);
+        executor.setThreadNamePrefix("app-task-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(10);
+        executor.initialize();
+        return executor;
     }
 
     @Bean
@@ -56,7 +74,7 @@ public class Q1RealtimeStreamProcessingApplication {
                     log.info("Spark streaming job successfully launched and running");
                     success = true;
                     
-                    // Регистрируем shutdown hook для корректного завершения
+                    // Register shutdown hook for proper termination
                     Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                         log.info("Application shutdown detected, stopping Spark streaming job...");
                         try {
@@ -68,16 +86,16 @@ public class Q1RealtimeStreamProcessingApplication {
                 } catch (Exception e) {
                     retryCount++;
                     log.error("Failed to start Spark streaming job (attempt {}/{}): {}", 
-                             retryCount, maxRetries, e.getMessage());
+                             retryCount, maxRetries, e.getMessage(), e);
                     
                     if (retryCount < maxRetries) {
-                        // Экспоненциальное увеличение времени ожидания перед повторной попыткой
+                        // Exponential backoff before retrying
                         long waitTime = (long) Math.pow(2, retryCount) * 1000;
                         log.info("Waiting {} seconds before retrying...", waitTime / 1000);
                         TimeUnit.MILLISECONDS.sleep(waitTime);
                     } else {
                         log.error("Maximum retry attempts reached. Failed to start Spark streaming job.");
-                        System.exit(1);
+                        // Do not terminate the application to keep REST API running
                     }
                 }
             }
@@ -91,7 +109,7 @@ public class Q1RealtimeStreamProcessingApplication {
             log.info("Simple profile is active. Initializing Kafka Listener.");
             processor.startProcessing();
             
-            // Регистрируем shutdown hook для корректного завершения
+            // Register shutdown hook for proper termination
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 log.info("Application shutdown detected, stopping Kafka event processing...");
                 try {

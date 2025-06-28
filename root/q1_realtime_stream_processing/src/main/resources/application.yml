@@ -9,7 +9,7 @@ spring:
     password: ${SPRING_DATASOURCE_PASSWORD:tabulapass}
     driver-class-name: org.postgresql.Driver
     hikari:
-      # Оптимизируем connection pool
+      # Optimize connection pool
       maximum-pool-size: 10
       minimum-idle: 2
       connection-timeout: 10000
@@ -30,14 +30,14 @@ spring:
       buffer-memory: 33554432
       compression-type: lz4
 
-# Приложение
+# Application
 app:
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:${spring.kafka.bootstrap-servers}}
     topics:
       ad-events: ad-events
 
-# Настройки для Spark
+# Settings for Spark
 spark:
   app:
     name: tabularasa-bi-q1-spark-processor
@@ -55,7 +55,7 @@ spark:
   streaming:
     checkpoint-location: ${SPARK_STREAMING_CHECKPOINT_LOCATION:/tmp/spark_checkpoints}
 
-# Настройки для логирования
+# Settings for logging
 logging:
   level:
     root: INFO
@@ -65,7 +65,7 @@ logging:
     org.springframework: INFO
     org.springframework.kafka: INFO
 
-# Настройки для мониторинга
+# Settings for monitoring
 management:
   endpoints:
     web:

@@ -47,7 +47,7 @@
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
 
-        <!-- Унифицируем логирование для совместимости Spring Boot и Spark -->
+        <!-- Unify logging for compatibility between Spring Boot and Spark -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-log4j2</artifactId>

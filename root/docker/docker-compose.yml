@@ -351,7 +351,7 @@ services:
 volumes:
   tabularasa_pg_data:
     driver: local
-  # zookeeper_data удален в рамках миграции на KRaft
+  # zookeeper_data removed as part of migration to KRaft
   kafka_data:
     driver: local
   spark_jars:

@@ -12,10 +12,10 @@ public class KryoRegistrator implements org.apache.spark.serializer.KryoRegistra
     public void registerClasses(Kryo kryo) {
         kryo.register(AdEvent.class);
         
-        // Регистрируем специализированный сериализатор для ByteBuffer
+        // Register a specialized serializer for ByteBuffer
         kryo.register(ByteBuffer.class, new ByteBufferSerializer());
         
-        // Регистрируем конкретные реализации ByteBuffer
+        // Register specific implementations of ByteBuffer
         Class<? extends ByteBuffer> heapByteBufferClass = ByteBuffer.allocate(0).getClass();
         kryo.register(heapByteBufferClass, new ByteBufferSerializer());
         
@@ -24,51 +24,51 @@ public class KryoRegistrator implements org.apache.spark.serializer.KryoRegistra
     }
     
     /**
-     * Специализированный сериализатор для ByteBuffer, который корректно обрабатывает
-     * как HeapByteBuffer, так и DirectByteBuffer.
+     * Specialized serializer for ByteBuffer that correctly handles
+     * both HeapByteBuffer and DirectByteBuffer.
      */
     private static class ByteBufferSerializer extends Serializer<ByteBuffer> {
         @Override
         public void write(Kryo kryo, Output output, ByteBuffer buffer) {
-            // Сохраняем позицию и лимит
+            // Save position and limit
             int position = buffer.position();
             int limit = buffer.limit();
             int capacity = buffer.capacity();
             
-            // Записываем метаданные
+            // Write metadata
             output.writeInt(position);
             output.writeInt(limit);
             output.writeInt(capacity);
             output.writeBoolean(buffer.isDirect());
             
-            // Записываем содержимое буфера
+            // Write buffer contents
             byte[] array = new byte[limit - position];
             buffer.position(position);
             buffer.get(array);
             output.writeBytes(array);
             
-            // Восстанавливаем позицию
+            // Restore position
             buffer.position(position);
             buffer.limit(limit);
         }
         
         @Override
         public ByteBuffer read(Kryo kryo, Input input, Class<ByteBuffer> type) {
-            // Читаем метаданные
+            // Read metadata
             int position = input.readInt();
             int limit = input.readInt();
             int capacity = input.readInt();
             boolean direct = input.readBoolean();
             
-            // Читаем содержимое
+            // Read contents
             byte[] array = input.readBytes(limit - position);
             
-            // Создаем новый буфер
+            // Create new buffer
             ByteBuffer buffer = direct ? 
                 ByteBuffer.allocateDirect(capacity) : 
                 ByteBuffer.allocate(capacity);
             
-            // Заполняем буфер и устанавливаем позицию/лимит
+            // Fill buffer and set position/limit
             buffer.position(0);
             buffer.put(array);
             buffer.position(position);
@@ -77,4 +77,4 @@ public class KryoRegistrator implements org.apache.spark.serializer.KryoRegistra
             return buffer;
         }
     }
-} 
+}

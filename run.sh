@@ -23,12 +23,12 @@ ROOT_DIR=$(pwd)
 SCRIPTS_DIR="$ROOT_DIR/root/scripts"
 DOCKER_DIR="$ROOT_DIR/root/docker"
 Q1_DIR="$ROOT_DIR/root/q1_realtime_stream_processing"
-# PID маркер для локального Python-продюсера
+# PID marker for local Python producer
 PRODUCER_PID=""
 
 # Kafka connection details
-KAFKA_DOCKER_HOST="kafka:9092"      # внутри Docker-сети
-KAFKA_LOCAL_HOST="localhost:19092"  # с хост-машины
+KAFKA_DOCKER_HOST="kafka:9092"      # inside Docker network
+KAFKA_LOCAL_HOST="localhost:19092"  # from host machine
 
 # Fallback Docker config without credential helpers if helper binary is missing
 if ! command -v docker-credential-desktop >/dev/null 2>&1; then
@@ -67,7 +67,7 @@ function kill_processes() {
   pkill -f "AdEventSparkStreamer" 2>/dev/null || true
   pkill -f "ad_events_producer.py" 2>/dev/null || true
   pkill -f "uvicorn main:app" 2>/dev/null || true
-  # Завершаем локальный Python-продюсер, если он запущен
+  # Terminate local Python producer if it is running
   if [[ -n "$PRODUCER_PID" ]] && ps -p "$PRODUCER_PID" > /dev/null 2>&1; then
     kill "$PRODUCER_PID" 2>/dev/null || true
     wait "$PRODUCER_PID" 2>/dev/null || true
@@ -235,7 +235,7 @@ function run_prod() {
 
       wait $APP_PID
 
-  # По завершении приложения останавливаем продюсер
+  # Stop the producer when the application terminates
   kill_processes
 }
 
@@ -353,19 +353,19 @@ function run_dash() {
   kill_processes
   echo "📊 [INFO] Launching dashboard backend (http://localhost:8080)…"
   
-  # Проверяем наличие необходимых пакетов Python
+  # Check for required Python packages
   echo "🔍 [INFO] Checking Python dependencies…"
   pip install -q psycopg2-binary flask || {
     echo "⚠️ [WARNING] Could not install Python dependencies. Trying with binary packages…"
     pip install -q psycopg2-binary flask
   }
   
-  # Запускаем setup_tables.py для подготовки базы данных
+  # Run setup_tables.py to prepare the database
   echo "🗄️ [INFO] Setting up database schema…"
   cd "$ROOT_DIR/dashboards"
   python setup_tables.py
   
-  # Запускаем server.py для обслуживания дашбордов
+  # Run server.py to serve the dashboards
   echo "🚀 [INFO] Starting dashboard server…"
   cd "$ROOT_DIR/dashboards"
   exec python server.py

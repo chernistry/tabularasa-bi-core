@@ -46,17 +46,17 @@ public class KafkaConsumerConfig {
         props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
-        // Оптимизируем настройки для надежности и производительности
+        // Optimize settings for reliability and performance
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, autoOffsetReset);
         props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, maxPollRecords);
         props.put(ConsumerConfig.FETCH_MAX_BYTES_CONFIG, fetchMaxBytes);
         props.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, 1);
         props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 500);
-        // Настройка для повышения надежности получения сообщений
-        props.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 300000); // 5 минут
-        props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 30000); // 30 секунд
-        props.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 10000); // 10 секунд
+        // Settings to improve message retrieval reliability
+        props.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 300000); // 5 minutes
+        props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 30000); // 30 seconds
+        props.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 10000); // 10 seconds
         return new DefaultKafkaConsumerFactory<>(props);
     }
 
@@ -70,8 +70,8 @@ public class KafkaConsumerConfig {
     public ConcurrentKafkaListenerContainerFactory<String, String> kafkaListenerContainerFactory() {
         ConcurrentKafkaListenerContainerFactory<String, String> factory = new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory());
-        factory.setConcurrency(2); // Устанавливаем количество потоков-потребителей
-        factory.getContainerProperties().setPollTimeout(3000); // 3 секунды на опрос
+        factory.setConcurrency(2); // Set the number of consumer threads
+        factory.getContainerProperties().setPollTimeout(3000); // 3 seconds for polling
         factory.getContainerProperties().setAckMode(org.springframework.kafka.listener.ContainerProperties.AckMode.MANUAL_IMMEDIATE);
         factory.setAutoStartup(true);
         return factory;
@@ -90,7 +90,7 @@ public class KafkaConsumerConfig {
         kafkaParams.put(ConsumerConfig.GROUP_ID_CONFIG, groupId + "_spark"); // Separate group for Spark
         kafkaParams.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         kafkaParams.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        // Оптимизируем настройки для Spark интеграции
+        // Optimize settings for Spark integration
         kafkaParams.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
         kafkaParams.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, autoOffsetReset);
         kafkaParams.put(ConsumerConfig.FETCH_MAX_BYTES_CONFIG, String.valueOf(fetchMaxBytes));
@@ -98,9 +98,9 @@ public class KafkaConsumerConfig {
         kafkaParams.put(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, String.valueOf(fetchMaxBytes));
         kafkaParams.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, "1");
         kafkaParams.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, "500");
-        // Настройки для повышения стабильности при работе со Spark
-        kafkaParams.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, "30000"); // 30 секунд
-        kafkaParams.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, "10000"); // 10 секунд
+        // Settings to improve stability when working with Spark
+        kafkaParams.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, "30000"); // 30 seconds
+        kafkaParams.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, "10000"); // 10 seconds
         return kafkaParams;
     }
 }

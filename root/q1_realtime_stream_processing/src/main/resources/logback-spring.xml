@@ -6,7 +6,7 @@
     <property name="CONSOLE_LOG_PATTERN"
               value="%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(${LOG_LEVEL_PATTERN:-%5p}) %clr(${PID:- }){magenta} %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n${LOG_EXCEPTION_CONVERSION_WORD:-%wEx}"/>
 
-    <!-- JSON аппендер для структурированного логирования -->
+    <!-- JSON appender for structured logging -->
     <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder class="net.logstash.logback.encoder.LogstashEncoder">
             <fieldNames>
@@ -23,7 +23,7 @@
         </encoder>
     </appender>
 
-    <!-- Стандартный консольный аппендер для обычного вывода -->
+    <!-- Standard console appender for regular output -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <pattern>${CONSOLE_LOG_PATTERN}</pattern>
@@ -31,7 +31,7 @@
         </encoder>
     </appender>
 
-    <!-- Файловый аппендер для сохранения всех логов -->
+    <!-- File appender for saving all logs -->
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_FILE}</file>
         <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
@@ -46,24 +46,24 @@
         </encoder>
     </appender>
 
-    <!-- Настройки для уровней логирования -->
+    <!-- Settings for logging levels -->
     <logger name="com.tabularasa" level="INFO"/>
     <logger name="org.apache.kafka" level="WARN"/>
     <logger name="org.apache.spark" level="WARN"/>
     <logger name="org.springframework" level="INFO"/>
     <logger name="org.springframework.kafka" level="INFO"/>
 
-    <!-- Основной root logger -->
+    <!-- Main root logger -->
     <root level="INFO">
         <appender-ref ref="JSON_CONSOLE"/>
         <appender-ref ref="FILE"/>
     </root>
 
-    <!-- Профиль для разработки с читаемым форматом логов -->
+    <!-- Profile for development with readable log format -->
     <springProfile name="dev">
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
             <appender-ref ref="FILE"/>
         </root>
     </springProfile>
-</configuration> 
+</configuration>

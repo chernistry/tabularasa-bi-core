@@ -54,11 +54,11 @@ SELECT
   'Brand' as product_brand,
   '25-34' as product_age_group,
   CASE 
-    WHEN ASCII(campaign_id) % 5 = 0 THEN 'Электроника'
-    WHEN ASCII(campaign_id) % 5 = 1 THEN 'Одежда'
-    WHEN ASCII(campaign_id) % 5 = 2 THEN 'Дом'
-    WHEN ASCII(campaign_id) % 5 = 3 THEN 'Спорт'
-    ELSE 'Красота'
+    WHEN ASCII(campaign_id) % 5 = 0 THEN 'Electronics'
+    WHEN ASCII(campaign_id) % 5 = 1 THEN 'Clothing'
+    WHEN ASCII(campaign_id) % 5 = 2 THEN 'Home'
+    WHEN ASCII(campaign_id) % 5 = 3 THEN 'Sports'
+    ELSE 'Beauty'
   END as product_category_1,
   NULL as product_category_2,
   NULL as product_category_3,
