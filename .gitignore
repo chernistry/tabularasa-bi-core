@@ -78,3 +78,8 @@ run.md
 */vcs.xml
 docs/cheatsheet.md
 dashboards/.DS_Store
+
+# Docker
+.dockerignore
+**/docker-compose.local.yml
+**/docker/.env

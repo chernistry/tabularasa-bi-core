@@ -140,11 +140,6 @@ function run_prod() {
   # Fix Hadoop user before starting, especially for spark profile
   if [[ "$profile" == "spark" ]]; then
     fix_hadoop_user
-    
-    # Synchronize Spark versions between local environment and containers
-    echo "🔄 [SPARK] Synchronizing Spark versions and configurations..."
-    chmod +x "$SCRIPTS_DIR/sync_spark_versions.sh"
-    "$SCRIPTS_DIR/sync_spark_versions.sh"
   fi
 
   # Run tests unless skipped

@@ -23,6 +23,7 @@ services:
     container_name: tabularasa_postgres_db
     ports:
       - "5432:5432"
+    env_file: .env
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-tabulauser}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-tabulapass}
@@ -40,41 +41,40 @@ services:
     networks:
       - docker_bi_network
 
-  # Kafka configured to use KRaft mode (no Zookeeper)
+  # Kafka configured for development mode
   kafka:
     image: bitnami/kafka:3.7
     container_name: kafka
     ports:
-      - "9092:9092"
-      - "19092:19092"
+      - "9092:9092" # PLAINTEXT port
     environment:
-      # TODO: Replace ALLOW_PLAINTEXT_LISTENER with proper SSL/TLS setup for production
-      - ALLOW_PLAINTEXT_LISTENER=yes
+      # Enable plaintext listener for development
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9094
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      # KRaft settings
       - KAFKA_CFG_NODE_ID=1
       - KAFKA_CFG_PROCESS_ROLES=broker,controller
-      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@localhost:9094
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9094
       - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      - KAFKA_CFG_LISTENERS=INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:19092,CONTROLLER://0.0.0.0:9094
-      - KAFKA_CFG_ADVERTISED_LISTENERS=INTERNAL://kafka:9092,EXTERNAL://localhost:19092
-      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
-      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=INTERNAL
-      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=false
-      # Improved configuration for production readiness
+      - KAFKA_KRAFT_CLUSTER_ID=tabulaRasaBiKafkaCluster123
+      # Other settings
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
       - KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=1
       - KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
       - KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR=1
-      # Producer idempotence for exactly-once semantics
       - KAFKA_CFG_ENABLE_IDEMPOTENCE=true
-      # Enable KRaft mode
-      - KAFKA_KRAFT_CLUSTER_ID=tabulaRasaBiKafkaCluster123
     volumes:
       - kafka_data:/bitnami/kafka
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     networks:
       - docker_bi_network
 
@@ -101,7 +101,9 @@ services:
   # ================== SPARK CLUSTER ==================
   # --► Spark master and worker for distributed processing
   spark-master:
-    image: docker.io/bitnami/spark:3.5
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
     container_name: spark-master
     environment:
       - SPARK_MODE=master
@@ -121,8 +123,6 @@ services:
     volumes:
       - spark_jars:/opt/bitnami/spark/jars
       - ../q1_realtime_stream_processing/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar:/opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar
-      - ./spark/log4j2.xml:/opt/bitnami/spark/conf/log4j2.xml
-      - ./spark/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf
     healthcheck:
       test: ["CMD-SHELL", "curl -s -f http://localhost:8080/ || exit 1"]
       interval: 15s
@@ -134,7 +134,9 @@ services:
       - docker_bi_network
 
   spark-worker:
-    image: docker.io/bitnami/spark:3.5
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
     container_name: spark-worker
     environment:
       - SPARK_MODE=worker
@@ -154,8 +156,6 @@ services:
     volumes:
       - spark_jars:/opt/bitnami/spark/jars
       - ../q1_realtime_stream_processing/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar:/opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar
-      - ./spark/log4j2.xml:/opt/bitnami/spark/conf/log4j2.xml
-      - ./spark/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf
     healthcheck:
       test: ["CMD-SHELL", "curl -s -f http://localhost:8081/ || exit 1"]
       interval: 15s
@@ -207,13 +207,12 @@ services:
     volumes:
       - ./grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    env_file: .env
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
-      # TODO: Remove this line for production and use proper secure password
-      - GF_SECURITY_DISABLE_INITIAL_ADMIN_PASSWORD_CHANGE=true
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O- http://localhost:3000/api/health | grep -q '\"database\":\"ok\"'"]
       interval: 30s
@@ -265,62 +264,6 @@ services:
     user: "65534:65534" # nobody:nogroup
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:9093/-/healthy"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    restart: unless-stopped
-    networks:
-      - docker_bi_network
-
-  bi-app:
-    image: openjdk:17-jdk-slim
-    container_name: bi-app
-    depends_on:
-      kafka:
-        condition: service_healthy
-      tabularasa_postgres_db:
-        condition: service_healthy
-    ports:
-      - "8083:8083"
-    environment:
-      - SPRING_PROFILES_ACTIVE=simple
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://tabularasa_postgres_db:5432/tabularasadb
-      - SPRING_DATASOURCE_USERNAME=tabulauser
-      - SPRING_DATASOURCE_PASSWORD=tabulapass
-      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - HADOOP_USER_NAME=spark
-      - HADOOP_HOME=/opt/hadoop
-      - JAVA_OPTS="-Xms512m -Xmx1g -Dhadoop.security.authentication=simple -Dorg.apache.hadoop.security.authentication=simple -Djavax.security.auth.useSubjectCredsOnly=false -Djava.security.auth.login.config=/dev/null -Djava.security.krb5.conf=/dev/null -Dspark.hadoop.hadoop.security.authentication=simple -Dspark.kerberos.keytab=none -Dspark.kerberos.principal=none"
-      - MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,info,metrics
-      - MANAGEMENT_SECURITY_ENABLED=true
-      - MANAGEMENT_SECURITY_ROLES=ACTUATOR
-    volumes:
-      - ../q1_realtime_stream_processing/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT-exec.jar:/app/app.jar
-    command: ["java", "-Dhadoop.security.authentication=simple", "-Dorg.apache.hadoop.security.authentication=simple", "-Dspark.hadoop.hadoop.security.authentication=simple", "-Djavax.security.auth.useSubjectCredsOnly=false", "-Djava.security.auth.login.config=/dev/null", "-Djava.security.krb5.conf=/dev/null", "-Dhadoop.home.dir=/", "-DHADOOP_USER_NAME=spark", "-Dspark.kerberos.keytab=none", "-Dspark.kerberos.principal=none", "-jar", "/app/app.jar"]
-    user: "1000:1000" # Use non-root user
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8083/actuator/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    restart: unless-stopped
-    networks:
-      - docker_bi_network
-
-  postgres-exporter:
-    image: prometheuscommunity/postgres-exporter:v0.15.0
-    container_name: postgres-exporter
-    environment:
-      - DATA_SOURCE_NAME=postgresql://tabulauser:tabulapass@tabularasa_postgres_db:5432/tabularasadb?sslmode=disable
-    ports:
-      - "9187:9187"
-    depends_on:
-      tabularasa_postgres_db:
-        condition: service_healthy
-    user: "nobody"
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9187/metrics"]
       interval: 30s
       timeout: 10s
       retries: 3
