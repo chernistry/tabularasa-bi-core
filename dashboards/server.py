@@ -81,7 +81,7 @@ def campaign_performance():
       CASE WHEN SUM(CASE WHEN event_type = 'impression' THEN event_count ELSE 0 END) > 0
         THEN (SUM(CASE WHEN event_type = 'click' THEN event_count ELSE 0 END)::float / SUM(CASE WHEN event_type = 'impression' THEN event_count ELSE 0 END)) * 100
         ELSE 0 END AS ctr
-    FROM aggregated_campaign_stats
+    FROM v_aggregated_campaign_stats
     GROUP BY campaign_id
     ORDER BY spend_usd DESC
     LIMIT 15;
@@ -102,7 +102,7 @@ def performance_by_device():
       CASE WHEN SUM(CASE WHEN event_type = 'click' THEN event_count ELSE 0 END) > 0
         THEN (SUM(CASE WHEN event_type = 'conversion' THEN event_count ELSE 0 END)::float / SUM(CASE WHEN event_type = 'click' THEN event_count ELSE 0 END)) * 100
         ELSE 0 END as conversion_rate
-    FROM aggregated_campaign_stats
+    FROM v_aggregated_campaign_stats
     GROUP BY device_type
     ORDER BY total_revenue DESC;
     """
@@ -119,7 +119,7 @@ def performance_by_category():
     SELECT
       COALESCE(product_category_1, 0) as product_category_1,
       SUM(total_sales_amount_euro) as total_revenue
-    FROM aggregated_campaign_stats
+    FROM v_aggregated_campaign_stats
     GROUP BY product_category_1
     ORDER BY total_revenue DESC
     LIMIT 7;
@@ -142,7 +142,7 @@ def kpis():
         THEN (SUM(CASE WHEN event_type = 'click' THEN event_count ELSE 0 END)::float / SUM(CASE WHEN event_type = 'impression' THEN event_count ELSE 0 END)) * 100
         ELSE 0 END AS ctr,
       SUM(spend_usd) AS spend_usd
-    FROM aggregated_campaign_stats;
+    FROM v_aggregated_campaign_stats;
     """
     
     def empty_kpis():
@@ -164,13 +164,23 @@ def kpis():
 @app.route('/api/roi_trend')
 def roi_trend():
     query = """
+    WITH daily_metrics AS (
+        SELECT
+            DATE(window_start_time) as day,
+            SUM(total_sales_amount_euro) as total_revenue,
+            SUM(spend_usd) as total_spend
+        FROM v_aggregated_campaign_stats
+        WHERE window_start_time > NOW() - INTERVAL '30 days'
+        GROUP BY DATE(window_start_time)
+    )
     SELECT
-      window_start_time,
-      SUM(total_sales_amount_euro) / NULLIF(SUM(spend_usd),0) AS roi
-    FROM aggregated_campaign_stats
-    WHERE window_start_time > NOW() - INTERVAL '30 days'
-    GROUP BY window_start_time
-    ORDER BY window_start_time;
+        day as window_start_time,
+        CASE 
+            WHEN total_spend > 0 THEN total_revenue / total_spend
+            ELSE 0
+        END AS roi
+    FROM daily_metrics
+    ORDER BY day;
     """
     
     def empty_roi_trend():
@@ -207,7 +217,7 @@ def performance_by_brand():
     SELECT
       COALESCE(product_brand, 'Unknown') as product_brand,
       SUM(total_sales_amount_euro) as total_revenue
-    FROM aggregated_campaign_stats
+    FROM v_aggregated_campaign_stats
     GROUP BY product_brand
     ORDER BY total_revenue DESC
     LIMIT 10;
@@ -228,7 +238,7 @@ def performance_by_age_group():
       CASE WHEN SUM(CASE WHEN event_type = 'impression' THEN event_count ELSE 0 END) > 0
         THEN (SUM(CASE WHEN event_type = 'click' THEN event_count ELSE 0 END)::float / SUM(CASE WHEN event_type = 'impression' THEN event_count ELSE 0 END)) * 100
         ELSE 0 END AS ctr
-    FROM aggregated_campaign_stats
+    FROM v_aggregated_campaign_stats
     GROUP BY product_age_group
     ORDER BY product_age_group;
     """
@@ -238,6 +248,90 @@ def performance_by_age_group():
         return []
 
     return jsonify(execute_query(query, empty_age_group_data))
+
+@app.route('/api/advertiser_metrics')
+def advertiser_metrics():
+    query = """
+    SELECT
+      -- Cost Per Acquisition (CPA): Total spend divided by number of conversions
+      CASE 
+          WHEN SUM(CASE WHEN event_type = 'conversion' THEN event_count ELSE 0 END) > 0 
+          THEN SUM(spend_usd) / SUM(CASE WHEN event_type = 'conversion' THEN event_count ELSE 0 END)
+          ELSE 0 
+      END AS cpa,
+      
+      -- Return On Ad Spend (ROAS): Total revenue divided by total spend
+      CASE 
+          WHEN SUM(spend_usd) > 0 
+          THEN SUM(total_sales_amount_euro) / SUM(spend_usd)
+          ELSE 0 
+      END AS roas,
+      
+      -- Conversion Rate: Conversions divided by clicks
+      CASE 
+          WHEN SUM(CASE WHEN event_type = 'click' THEN event_count ELSE 0 END) > 0
+          THEN (SUM(CASE WHEN event_type = 'conversion' THEN event_count ELSE 0 END)::float / 
+                SUM(CASE WHEN event_type = 'click' THEN event_count ELSE 0 END)) * 100
+          ELSE 0 
+      END AS conversion_rate
+    FROM v_aggregated_campaign_stats;
+    """
+    
+    def empty_metrics():
+        print("WARNING: Returning empty advertiser metrics.")
+        return {
+            'cpa': 0,
+            'roas': 0,
+            'conversion_rate': 0
+        }
+    
+    result = execute_query(query, empty_metrics)
+    # If the query result is a list of dictionaries, take the first element
+    if isinstance(result, list) and result:
+        return jsonify(result[0])
+    return jsonify(result)
+
+@app.route('/api/campaign_efficiency')
+def campaign_efficiency():
+    query = """
+    WITH campaign_metrics AS (
+        SELECT
+            campaign_id,
+            SUM(CASE WHEN event_type = 'impression' THEN event_count ELSE 0 END) AS impressions,
+            SUM(CASE WHEN event_type = 'click' THEN event_count ELSE 0 END) AS clicks,
+            SUM(CASE WHEN event_type = 'conversion' THEN event_count ELSE 0 END) AS conversions,
+            SUM(spend_usd) AS spend,
+            SUM(total_sales_amount_euro) AS revenue
+        FROM v_aggregated_campaign_stats
+        GROUP BY campaign_id
+    )
+    SELECT
+        campaign_id,
+        spend,
+        CASE 
+            WHEN spend > 0 THEN revenue / spend
+            ELSE 0
+        END AS roi,
+        conversions,
+        CASE 
+            WHEN impressions > 0 THEN (clicks::float / impressions) * 100
+            ELSE 0
+        END AS ctr,
+        CASE 
+            WHEN clicks > 0 THEN (conversions::float / clicks) * 100
+            ELSE 0
+        END AS conversion_rate
+    FROM campaign_metrics
+    WHERE spend > 0
+    ORDER BY spend DESC
+    LIMIT 20;
+    """
+    
+    def empty_efficiency():
+        print("WARNING: Returning empty campaign efficiency data.")
+        return []
+    
+    return jsonify(execute_query(query, empty_efficiency))
 
 if __name__ == '__main__':
     # Validate database connectivity on server start-up

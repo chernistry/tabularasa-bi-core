@@ -119,15 +119,19 @@
             const safeDivide = (numerator, denominator) => (denominator ? numerator / denominator : 0);
 
             // Fetch high-level KPIs first
-            fetch('/api/kpis')
-                .then(res => res.ok ? res.json() : Promise.reject(res.status))
-                .then(kpis => {
-                    document.getElementById('kpi-cpa').textContent = `$${kpis.cpa.toFixed(2)}`;
-                    document.getElementById('kpi-roas').innerHTML = `${kpis.roas.toFixed(2)}<span class="unit">x</span>`;
-                    document.getElementById('kpi-cr').innerHTML = `${(kpis.conversion_rate * 100).toFixed(2)}<span class="unit">%</span>`;
+            fetch('/api/advertiser_metrics')
+                .then(res => {
+                    console.log("API response status:", res.status);
+                    return res.ok ? res.json() : Promise.reject(res.status);
+                })
+                .then(metrics => {
+                    console.log("Received metrics:", metrics);
+                    document.getElementById('kpi-cpa').textContent = `$${parseFloat(metrics.cpa).toFixed(2)}`;
+                    document.getElementById('kpi-roas').innerHTML = `${parseFloat(metrics.roas).toFixed(2)}<span class="unit">x</span>`;
+                    document.getElementById('kpi-cr').innerHTML = `${parseFloat(metrics.conversion_rate).toFixed(2)}<span class="unit">%</span>`;
                 })
                 .catch(err => {
-                    console.error('Error fetching KPIs:', err);
+                    console.error('Error fetching advertiser metrics:', err);
                     document.getElementById('kpi-cpa').textContent = 'Error';
                     document.getElementById('kpi-roas').textContent = 'Error';
                     document.getElementById('kpi-cr').textContent = 'Error';
@@ -170,7 +174,7 @@
                     const efficiencyData = campaigns.map(c => ({
                         cpa: safeDivide(c.spend_usd, c.conversions),
                         ctr: c.ctr,
-                        spend: c.spend_usd,
+                        spend: parseFloat(c.spend_usd),
                         id: c.campaign_id
                     })).filter(c => c.cpa > 0 && c.ctr > 0); // Only show campaigns with conversions
 
@@ -185,7 +189,7 @@
                     Plotly.newPlot('efficiency-bubble-chart', [{
                         x: efficiencyData.map(d => d.cpa),
                         y: efficiencyData.map(d => d.ctr),
-                        text: efficiencyData.map(d => `Campaign ${d.id}<br>Spend: $${d.spend.toFixed(0)}`),
+                        text: efficiencyData.map(d => `Campaign ${d.id}<br>Spend: $${d.spend.toFixed(2)}`),
                         mode: 'markers',
                         marker: {
                             size: efficiencyData.map(d => Math.sqrt(d.spend) / 2), // Scale bubble size
@@ -198,6 +202,78 @@
                 })
                 .catch(error => {
                     console.error('Error fetching campaign performance:', error);
+                });
+
+            // Fetch campaign efficiency data for the "Wow" feature
+            fetch('/api/campaign_efficiency')
+                .then(res => {
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    return res.json();
+                })
+                .then(campaigns => {
+                    if (!campaigns || campaigns.length === 0) {
+                        console.warn('No campaign efficiency data available');
+                        return;
+                    }
+                    
+                    // --- Efficiency Bubble Chart ("Wow" effect) ---
+                    const bubbleLayout = {
+                        ...plotTheme,
+                        title: { ...plotTheme.title, text: 'Campaign Efficiency Matrix' },
+                        xaxis: { title: 'Ad Spend ($)' },
+                        yaxis: { title: 'Return on Investment (ROI)' },
+                        hovermode: 'closest',
+                        annotations: [
+                            {
+                                x: 5,
+                                y: 25,
+                                text: 'Stars',
+                                showarrow: false,
+                                font: { size: 12 }
+                            },
+                            {
+                                x: 20,
+                                y: 25,
+                                text: 'Cash Cows',
+                                showarrow: false,
+                                font: { size: 12 }
+                            },
+                            {
+                                x: 5,
+                                y: 75,
+                                text: 'Question Marks',
+                                showarrow: false,
+                                font: { size: 12 }
+                            },
+                            {
+                                x: 20,
+                                y: 75,
+                                text: 'Pets',
+                                showarrow: false,
+                                font: { size: 12 }
+                            }
+                        ]
+                    };
+                    
+                    Plotly.newPlot('efficiency-bubble-chart', [{
+                        x: campaigns.map(d => d.spend),
+                        y: campaigns.map(d => d.roi * 100), // Convert to percentage
+                        text: campaigns.map(d => `Campaign ${d.campaign_id}<br>ROI: ${(d.roi * 100).toFixed(1)}%<br>Conversions: ${d.conversions}<br>CTR: ${d.ctr.toFixed(2)}%`),
+                        mode: 'markers',
+                        marker: {
+                            size: campaigns.map(d => Math.sqrt(d.conversions) * 3 + 5), // Scale bubble size by conversions
+                            color: campaigns.map(d => d.conversion_rate), // Color by conversion rate
+                            colorscale: 'Viridis',
+                            colorbar: {
+                                title: 'Conv. Rate (%)'
+                            },
+                            sizemode: 'diameter',
+                            sizemin: 5
+                        }
+                    }], bubbleLayout, { responsive: true });
+                })
+                .catch(error => {
+                    console.error('Error fetching campaign efficiency data:', error);
                 });
 
             // Fetch revenue by brand to calculate total revenue for KPI and render chart

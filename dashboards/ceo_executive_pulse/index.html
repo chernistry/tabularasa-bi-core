@@ -79,17 +79,26 @@
 
             // Fetch KPIs
             fetch('/api/kpis')
-                .then(r => r.ok ? r.json() : Promise.reject(r.status))
-                .then(data => {
-                    document.getElementById('kpi-impressions').textContent = data.impressions.toLocaleString();
-                    document.getElementById('kpi-clicks').textContent = data.clicks.toLocaleString();
-                    document.getElementById('kpi-conversions').textContent = data.conversions.toLocaleString();
-                    document.getElementById('kpi-ctr').innerHTML = `${data.ctr.toFixed(2)}<span class="unit">%</span>`;
-                    document.getElementById('kpi-spend').textContent = `$${(data.spend_usd / 1000000).toFixed(2)}M`;
+                .then(res => res.ok ? res.json() : Promise.reject(res.status))
+                .then(kpis => {
+                    document.getElementById('kpi-impressions').textContent = kpis.impressions.toLocaleString();
+                    document.getElementById('kpi-clicks').textContent = kpis.clicks.toLocaleString();
+                    document.getElementById('kpi-conversions').textContent = kpis.conversions.toLocaleString();
+                    document.getElementById('kpi-ctr').textContent = `${kpis.ctr.toFixed(2)}%`;
+                    
+                    // Format ad spend in thousands with 2 decimal places
+                    console.log("Raw spend_usd value:", kpis.spend_usd, "Type:", typeof kpis.spend_usd);
+                    const spendInThousands = parseFloat(kpis.spend_usd) / 1000;
+                    console.log("Converted to thousands:", spendInThousands);
+                    document.getElementById('kpi-spend').textContent = `$${spendInThousands.toFixed(2)}K`;
                 })
-                .catch(error => {
-                    console.error('Error fetching KPIs:', error);
-                    ['impressions','clicks','conversions','ctr','spend'].forEach(id => document.getElementById(`kpi-${id}`).textContent = 'Error');
+                .catch(err => {
+                    console.error('Error fetching KPIs:', err);
+                    document.getElementById('kpi-impressions').textContent = 'Error';
+                    document.getElementById('kpi-clicks').textContent = 'Error';
+                    document.getElementById('kpi-conversions').textContent = 'Error';
+                    document.getElementById('kpi-ctr').textContent = 'Error';
+                    document.getElementById('kpi-spend').textContent = 'Error';
                 });
 
             // Fetch ROI Trend

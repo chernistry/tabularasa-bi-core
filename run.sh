@@ -116,8 +116,6 @@ function fix_hadoop_user() {
 
 # Run application locally, connecting to services in Docker
 function run_prod() {
-  # Ensure no stale processes are holding the application port (e.g., 8083)
-  kill_processes
   trap 'kill_processes; exit' INT TERM
   local profile="simple"
   local skip_tests=false
@@ -353,9 +351,24 @@ function cleanup() {
 # Run FastAPI dashboard
 function run_dash() {
   kill_processes
-  echo "📊 [INFO] Launching FastAPI dashboard backend (http://localhost:8000)…"
-  cd "$ROOT_DIR/root/dashboard_backend"
-  exec uvicorn main:app --reload
+  echo "📊 [INFO] Launching dashboard backend (http://localhost:8080)…"
+  
+  # Проверяем наличие необходимых пакетов Python
+  echo "🔍 [INFO] Checking Python dependencies…"
+  pip install -q psycopg2-binary flask || {
+    echo "⚠️ [WARNING] Could not install Python dependencies. Trying with binary packages…"
+    pip install -q psycopg2-binary flask
+  }
+  
+  # Запускаем setup_tables.py для подготовки базы данных
+  echo "🗄️ [INFO] Setting up database schema…"
+  cd "$ROOT_DIR/dashboards"
+  python setup_tables.py
+  
+  # Запускаем server.py для обслуживания дашбордов
+  echo "🚀 [INFO] Starting dashboard server…"
+  cd "$ROOT_DIR/dashboards"
+  exec python server.py
 }
 
 # Check the status of the pipeline components
