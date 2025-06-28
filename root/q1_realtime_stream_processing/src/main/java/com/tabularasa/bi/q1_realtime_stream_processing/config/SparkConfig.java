@@ -18,8 +18,8 @@ public class SparkConfig {
     @Value("${spark.app.name}")
     private String appName;
 
-    @Value("${spark.master}")
-    private String master;
+    @Value("${spark.master:local[*]}")
+    private String sparkMaster;
 
     @Value("${spark.driver.memory:1g}")
     private String driverMemory;
@@ -30,67 +30,71 @@ public class SparkConfig {
     @Value("${spark.executor.cores:2}")
     private int executorCores;
 
-    @Value("${spark.default.parallelism:16}")
+    @Value("${spark.default.parallelism:4}")
     private int defaultParallelism;
 
-    @Value("${spark.sql.shuffle.partitions:16}")
+    @Value("${spark.sql.shuffle.partitions:4}")
     private int shufflePartitions;
 
     @Bean
     @Primary
     public SparkSession sparkSession() {
+        // Определяем, запускаемся ли в локальном режиме
+        boolean isLocalMaster = sparkMaster.startsWith("local") || sparkMaster.equals("spark://localhost:7077");
+        
         log.info("Creating SparkSession with app name: {}, master: {}, driverMemory: {}, executorMemory: {}", 
-                appName, master, driverMemory, executorMemory);
-                
+                appName, sparkMaster, driverMemory, executorMemory);
+        
+        // Выбираем оптимальные настройки в зависимости от режима
+        String actualMaster = sparkMaster;
+        if (sparkMaster.equals("spark://localhost:7077")) {
+            log.info("Using local mode instead of localhost:7077 to avoid connectivity issues");
+            actualMaster = "local[*]";
+        }
+        
+        SparkConf conf = new SparkConf()
+            .setAppName(appName)
+            .setMaster(actualMaster)
+            // Основные параметры сериализации
+            .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+            .set("spark.kryo.registrator", "com.tabularasa.bi.q1_realtime_stream_processing.serialization.KryoRegistrator")
+            .set("spark.kryo.registrationRequired", "false")
+            
+            // Настройки ресурсов
+            .set("spark.driver.memory", driverMemory)
+            .set("spark.executor.memory", executorMemory)
+            .set("spark.executor.cores", String.valueOf(executorCores))
+            
+            // Настройки параллелизма
+            .set("spark.default.parallelism", String.valueOf(defaultParallelism))
+            .set("spark.sql.shuffle.partitions", String.valueOf(shufflePartitions))
+            
+            // Scheduler settings
+            .set("spark.scheduler.mode", "FAIR")
+            
+            // Checkpoint
+            .set("spark.streaming.unpersist", "true")
+            .set("spark.streaming.kafka.maxRatePerPartition", "10000")
+            .set("spark.streaming.backpressure.enabled", "true")
+            
+            // Network optimization
+            .set("spark.network.timeout", "300s")
+            .set("spark.executor.heartbeatInterval", "30s")
+            
+            // Memory optimization
+            .set("spark.memory.fraction", "0.8")
+            .set("spark.memory.storageFraction", "0.3")
+            
+            // Отключаем dynamic allocation для локального режима
+            .set("spark.dynamicAllocation.enabled", "false")
+            
+            // UI и метрики (отключаем для оптимизации)
+            .set("spark.ui.enabled", "false")
+            .set("spark.metrics.staticSources.enabled", "false");
+
         return SparkSession.builder()
-                .appName(appName)
-                .master(master)
-                // Основные параметры сериализации
-                .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
-                .config("spark.kryo.registrator", com.tabularasa.bi.q1_realtime_stream_processing.serialization.KryoRegistrator.class.getName())
-                .config("spark.kryo.unsafe", "true")
-                
-                // Настройки ресурсов
-                .config("spark.driver.memory", driverMemory)
-                .config("spark.executor.memory", executorMemory)
-                .config("spark.executor.cores", executorCores)
-                .config("spark.cores.max", executorCores * 2)
-                
-                // Настройки параллелизма
-                .config("spark.default.parallelism", defaultParallelism)
-                .config("spark.sql.shuffle.partitions", shufflePartitions)
-                
-                // Scheduler settings
-                .config("spark.scheduler.mode", "FAIR")
-                .config("spark.scheduler.allocation.file", "classpath:fairscheduler.xml")
-                
-                // Checkpoint
-                .config("spark.streaming.unpersist", "true")
-                .config("spark.streaming.kafka.maxRatePerPartition", "10000")
-                .config("spark.streaming.backpressure.enabled", "true")
-                
-                // Network optimization
-                .config("spark.network.timeout", "800s")
-                .config("spark.executor.heartbeatInterval", "60s")
-                
-                // Memory optimization
-                .config("spark.memory.fraction", "0.8")
-                .config("spark.memory.storageFraction", "0.3")
-                
-                // Dynamic allocation
-                .config("spark.dynamicAllocation.enabled", "true")
-                .config("spark.dynamicAllocation.initialExecutors", "1")
-                .config("spark.dynamicAllocation.minExecutors", "1")
-                .config("spark.dynamicAllocation.maxExecutors", "4")
-                .config("spark.dynamicAllocation.schedulerBacklogTimeout", "30s")
-                
-                // UI и метрики (отключаем для оптимизации)
-                .config("spark.ui.enabled", "false")
-                .config("spark.metrics.staticSources.enabled", "false")
-                
-                // Deployment-specific settings
-                .config("spark.submit.deployMode", "client")
-                .getOrCreate();
+            .config(conf)
+            .getOrCreate();
     }
     
     @Bean

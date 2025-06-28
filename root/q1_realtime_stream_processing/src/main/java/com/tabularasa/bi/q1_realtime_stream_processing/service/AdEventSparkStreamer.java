@@ -90,21 +90,25 @@ public class AdEventSparkStreamer {
         this.failedEventsCounter = meterRegistry.counter("app.events.failed", "type", "ad_event");
         this.batchProcessingTimer = meterRegistry.timer("app.events.batch.processing.time", "type", "ad_event");
         
-        // Инициализируем connection pool
+        // Оптимизируем connection pool
         this.dataSource = new BasicDataSource();
         this.dataSource.setDriverClassName(POSTGRES_DRIVER);
         this.dataSource.setUrl(dbUrl);
         this.dataSource.setUsername(dbUser);
         this.dataSource.setPassword(dbPassword);
-        this.dataSource.setInitialSize(5);
-        this.dataSource.setMaxTotal(20);
-        this.dataSource.setMaxIdle(10);
-        this.dataSource.setMinIdle(5);
-        this.dataSource.setMaxWaitMillis(30000);
+        this.dataSource.setInitialSize(2);      // Уменьшаем начальный размер для экономии ресурсов
+        this.dataSource.setMaxTotal(10);        // Уменьшаем максимальный размер
+        this.dataSource.setMaxIdle(5);
+        this.dataSource.setMinIdle(2);
+        this.dataSource.setMaxWaitMillis(10000); // Уменьшаем время ожидания
         this.dataSource.setValidationQuery("SELECT 1");
         this.dataSource.setTestOnBorrow(true);
         this.dataSource.setTestWhileIdle(true);
         this.dataSource.setTimeBetweenEvictionRunsMillis(60000);
+        // Добавляем автоматическое восстановление соединений
+        this.dataSource.setRemoveAbandonedOnBorrow(true);
+        this.dataSource.setRemoveAbandonedTimeout(60);
+        this.dataSource.setLogAbandoned(true);
     }
 
     public void startStream() throws TimeoutException {
@@ -124,7 +128,7 @@ public class AdEventSparkStreamer {
                     .add("user_id", DataTypes.StringType)
                     .add("bid_amount_usd", DataTypes.DoubleType);
                 
-                // Создаем стрим из Kafka с дополнительными настройками
+                // Создаем стрим из Kafka с оптимизированными настройками
                 Dataset<Row> kafkaStream = sparkSession
                     .readStream()
                     .format("kafka")
@@ -132,9 +136,9 @@ public class AdEventSparkStreamer {
                     .option("subscribe", inputTopic)
                     .option("startingOffsets", "earliest")
                     .option("failOnDataLoss", "false")
-                    .option("maxOffsetsPerTrigger", "10000")
-                    .option("kafka.fetch.message.max.bytes", "10485760")
-                    .option("kafka.max.partition.fetch.bytes", "10485760")
+                    .option("maxOffsetsPerTrigger", "5000")     // Уменьшаем для лучшего контроля нагрузки
+                    .option("kafka.fetch.message.max.bytes", "5242880") // Уменьшаем размер данных
+                    .option("kafka.max.partition.fetch.bytes", "5242880")
                     .load();
                 
                 // Извлекаем JSON из Kafka и парсим его
@@ -143,7 +147,8 @@ public class AdEventSparkStreamer {
                     .select(functions.from_json(functions.col("json"), schema).as("data"))
                     .select("data.*")
                     .filter(functions.col("campaign_id").isNotNull())
-                    .repartition(sparkSession.sparkContext().defaultParallelism());
+                    // Используем меньшее количество партиций для локального режима
+                    .coalesce(Math.max(2, sparkSession.sparkContext().defaultParallelism() / 2));
                 
                 // Регистрируем временную таблицу для SQL-запросов
                 jsonStream.createOrReplaceTempView("ad_events");
@@ -166,6 +171,8 @@ public class AdEventSparkStreamer {
                 this.streamingQuery = aggregatedData
                     .writeStream()
                     .outputMode(OutputMode.Update())
+                    .option("checkpointLocation", checkpointLocation)
+                    .trigger(Trigger.ProcessingTime("10 seconds"))
                     .foreachBatch((batchDF, batchId) -> {
                         Timer.Sample sample = Timer.start();
                         log.info("Processing batch ID: {}", batchId);
@@ -174,12 +181,15 @@ public class AdEventSparkStreamer {
                             return;
                         }
 
-                        // Кэшируем данные для повторного использования
-                        batchDF.persist();
+                        // Используем небольшое количество партиций для локальной обработки
+                        Dataset<Row> optimizedDF = batchDF.coalesce(2);
+                        
+                        // Кэшируем данные в оперативной памяти
+                        optimizedDF.persist();
                         
                         long totalEventsInBatch = 0;
                         try {
-                             totalEventsInBatch = batchDF.selectExpr("sum(event_count)").first().getLong(0);
+                             totalEventsInBatch = optimizedDF.selectExpr("sum(event_count)").first().getLong(0);
                              log.info("Batch {} contains {} events", batchId, totalEventsInBatch);
                         } catch (Exception e) {
                             log.warn("Could not calculate total events in batch, maybe it was empty.", e);
@@ -189,14 +199,34 @@ public class AdEventSparkStreamer {
                         
                         // Используем общий пул соединений, а не создаем новое соединение для каждой партиции
                         try {
-                            processBatchWithConnectionPool(batchDF);
+                            // Добавляем повторные попытки для устойчивости
+                            int retries = 0;
+                            boolean success = false;
+                            Exception lastError = null;
+                            
+                            while (!success && retries < 3) {
+                                try {
+                                    processBatchWithConnectionPool(optimizedDF);
+                                    success = true;
+                                } catch (Exception e) {
+                                    retries++;
+                                    lastError = e;
+                                    log.warn("Error processing batch (attempt {}/3): {}", retries, e.getMessage());
+                                    if (retries < 3) {
+                                        Thread.sleep(1000 * retries); // Экспоненциальное ожидание
+                                    }
+                                }
+                            }
+                            
+                            if (!success) {
+                                failedEventsCounter.increment(totalEventsInBatch);
+                                log.error("Failed to process batch after 3 attempts", lastError);
+                            }
                         } finally {
-                            batchDF.unpersist();
+                            optimizedDF.unpersist();
                             sample.stop(batchProcessingTimer);
                         }
                     })
-                    .option("checkpointLocation", checkpointLocation)
-                    .trigger(Trigger.ProcessingTime("10 seconds"))
                     .start();
                 
                 log.info("Spark Structured Streaming started successfully");
@@ -218,8 +248,8 @@ public class AdEventSparkStreamer {
      * @param batchDF Набор данных для обработки
      */
     private void processBatchWithConnectionPool(Dataset<Row> batchDF) {
-        // Создаем cached dataset для эффективной параллельной обработки
-        Dataset<Row> cachedDF = batchDF.coalesce(4).cache();
+        // Уменьшаем количество партиций для эффективной обработки
+        Dataset<Row> cachedDF = batchDF.coalesce(2).cache();
         
         // Готовим SQL запрос для вставки/обновления
         final String insertSql =
@@ -254,10 +284,16 @@ public class AdEventSparkStreamer {
                         batchSize++;
                         totalRows++;
                         
-                        // Выполняем пакет запросов каждые 1000 строк
-                        if (batchSize >= 1000) {
-                            statement.executeBatch();
-                            connection.commit();
+                        // Выполняем пакет запросов каждые 200 строк (уменьшено для снижения нагрузки)
+                        if (batchSize >= 200) {
+                            try {
+                                statement.executeBatch();
+                                connection.commit();
+                            } catch (SQLException e) {
+                                log.error("Error executing batch: {}", e.getMessage());
+                                connection.rollback();
+                                throw e; // Перебрасываем для обработки выше
+                            }
                             statement.clearBatch();
                             batchSize = 0;
                         }
@@ -265,8 +301,14 @@ public class AdEventSparkStreamer {
                     
                     // Выполняем оставшиеся операции в пакете
                     if (batchSize > 0) {
-                        statement.executeBatch();
-                        connection.commit();
+                        try {
+                            statement.executeBatch();
+                            connection.commit();
+                        } catch (SQLException e) {
+                            log.error("Error executing final batch: {}", e.getMessage());
+                            connection.rollback();
+                            throw e;
+                        }
                     }
                     
                     log.debug("Processed {} rows in partition", totalRows);

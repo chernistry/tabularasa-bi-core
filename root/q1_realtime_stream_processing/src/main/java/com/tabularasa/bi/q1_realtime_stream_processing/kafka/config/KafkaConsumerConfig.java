@@ -24,6 +24,15 @@ public class KafkaConsumerConfig {
     @Value("${spring.kafka.consumer.group-id:q1_stream_consumer_group}")
     private String groupId;
 
+    @Value("${spring.kafka.consumer.auto-offset-reset:earliest}")
+    private String autoOffsetReset;
+
+    @Value("${spring.kafka.consumer.fetch-max-bytes:5242880}")
+    private int fetchMaxBytes; // 5 MB default
+
+    @Value("${spring.kafka.consumer.max-poll-records:500}")
+    private int maxPollRecords;
+
     // ==== SPRING KAFKA CONSUMER FACTORY ====
     /**
      * Creates a ConsumerFactory for Spring Kafka listeners.
@@ -37,9 +46,17 @@ public class KafkaConsumerConfig {
         props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
-        // Spark will manage offsets, so auto-commit should be handled carefully or disabled
-        // props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
-        // props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest"); // Or "latest"
+        // Оптимизируем настройки для надежности и производительности
+        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, autoOffsetReset);
+        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, maxPollRecords);
+        props.put(ConsumerConfig.FETCH_MAX_BYTES_CONFIG, fetchMaxBytes);
+        props.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, 1);
+        props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 500);
+        // Настройка для повышения надежности получения сообщений
+        props.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 300000); // 5 минут
+        props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 30000); // 30 секунд
+        props.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 10000); // 10 секунд
         return new DefaultKafkaConsumerFactory<>(props);
     }
 
@@ -53,6 +70,10 @@ public class KafkaConsumerConfig {
     public ConcurrentKafkaListenerContainerFactory<String, String> kafkaListenerContainerFactory() {
         ConcurrentKafkaListenerContainerFactory<String, String> factory = new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory());
+        factory.setConcurrency(2); // Устанавливаем количество потоков-потребителей
+        factory.getContainerProperties().setPollTimeout(3000); // 3 секунды на опрос
+        factory.getContainerProperties().setAckMode(org.springframework.kafka.listener.ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        factory.setAutoStartup(true);
         return factory;
     }
 
@@ -69,10 +90,17 @@ public class KafkaConsumerConfig {
         kafkaParams.put(ConsumerConfig.GROUP_ID_CONFIG, groupId + "_spark"); // Separate group for Spark
         kafkaParams.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         kafkaParams.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        // Let Spark manage offsets
+        // Оптимизируем настройки для Spark интеграции
         kafkaParams.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
-        // Define behavior when no GCloud offset is found or current offset does not exist on server
-        kafkaParams.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        kafkaParams.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, autoOffsetReset);
+        kafkaParams.put(ConsumerConfig.FETCH_MAX_BYTES_CONFIG, String.valueOf(fetchMaxBytes));
+        kafkaParams.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, String.valueOf(maxPollRecords));
+        kafkaParams.put(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, String.valueOf(fetchMaxBytes));
+        kafkaParams.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, "1");
+        kafkaParams.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, "500");
+        // Настройки для повышения стабильности при работе со Spark
+        kafkaParams.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, "30000"); // 30 секунд
+        kafkaParams.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, "10000"); // 10 секунд
         return kafkaParams;
     }
 }

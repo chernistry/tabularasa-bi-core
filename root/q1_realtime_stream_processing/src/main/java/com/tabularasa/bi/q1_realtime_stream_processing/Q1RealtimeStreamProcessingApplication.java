@@ -11,6 +11,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
+import java.util.concurrent.TimeUnit;
+
 /**
  * Main application class for the Q1 real-time stream processing module.
  * This application can run in one of two modes, determined by the "spring.profiles.active" property:
@@ -42,23 +44,42 @@ public class Q1RealtimeStreamProcessingApplication {
     public CommandLineRunner sparkRunner(AdEventSparkStreamer streamer) {
         return args -> {
             log.info("Spark profile is active. Launching Spark streaming job via Spring context.");
-            try {
-                log.info("Initializing Spark streaming pipeline...");
-                streamer.startStream();
-                log.info("Spark streaming job successfully launched and running");
-                
-                // Регистрируем shutdown hook для корректного завершения
-                Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                    log.info("Application shutdown detected, stopping Spark streaming job...");
-                    try {
-                        streamer.stopStream();
-                    } catch (Exception e) {
-                        log.error("Error during Spark streaming shutdown", e);
+            
+            int maxRetries = 3;
+            int retryCount = 0;
+            boolean success = false;
+            
+            while (!success && retryCount < maxRetries) {
+                try {
+                    log.info("Initializing Spark streaming pipeline... (attempt {}/{})", retryCount + 1, maxRetries);
+                    streamer.startStream();
+                    log.info("Spark streaming job successfully launched and running");
+                    success = true;
+                    
+                    // Регистрируем shutdown hook для корректного завершения
+                    Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                        log.info("Application shutdown detected, stopping Spark streaming job...");
+                        try {
+                            streamer.stopStream();
+                        } catch (Exception e) {
+                            log.error("Error during Spark streaming shutdown", e);
+                        }
+                    }));
+                } catch (Exception e) {
+                    retryCount++;
+                    log.error("Failed to start Spark streaming job (attempt {}/{}): {}", 
+                             retryCount, maxRetries, e.getMessage());
+                    
+                    if (retryCount < maxRetries) {
+                        // Экспоненциальное увеличение времени ожидания перед повторной попыткой
+                        long waitTime = (long) Math.pow(2, retryCount) * 1000;
+                        log.info("Waiting {} seconds before retrying...", waitTime / 1000);
+                        TimeUnit.MILLISECONDS.sleep(waitTime);
+                    } else {
+                        log.error("Maximum retry attempts reached. Failed to start Spark streaming job.");
+                        System.exit(1);
                     }
-                }));
-            } catch (Exception e) {
-                log.error("Failed to start Spark streaming job", e);
-                System.exit(1);
+                }
             }
         };
     }
