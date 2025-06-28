@@ -120,6 +120,7 @@ def performance_by_category():
       COALESCE(product_category_1, 0) as product_category_1,
       SUM(total_sales_amount_euro) as total_revenue
     FROM v_aggregated_campaign_stats
+    WHERE product_category_1 IS NOT NULL
     GROUP BY product_category_1
     ORDER BY total_revenue DESC
     LIMIT 7;
@@ -170,7 +171,7 @@ def roi_trend():
             SUM(total_sales_amount_euro) as total_revenue,
             SUM(spend_usd) as total_spend
         FROM v_aggregated_campaign_stats
-        WHERE window_start_time > NOW() - INTERVAL '30 days'
+        WHERE window_start_time > NOW() - INTERVAL '90 days'
         GROUP BY DATE(window_start_time)
     )
     SELECT
@@ -187,7 +188,33 @@ def roi_trend():
         print("WARNING: Returning empty ROI trend.")
         return []
     
-    return jsonify(execute_query(query, empty_roi_trend))
+    result = execute_query(query, empty_roi_trend)
+    print(f"DEBUG ROI trend: Retrieved {len(result)} data points")
+    if len(result) == 0:
+        print("DEBUG ROI trend: No data found, checking for any data without date filter")
+        # Try without date filter if no data found
+        alt_query = """
+        WITH daily_metrics AS (
+            SELECT
+                DATE(window_start_time) as day,
+                SUM(total_sales_amount_euro) as total_revenue,
+                SUM(spend_usd) as total_spend
+            FROM v_aggregated_campaign_stats
+            GROUP BY DATE(window_start_time)
+        )
+        SELECT
+            day as window_start_time,
+            CASE 
+                WHEN total_spend > 0 THEN total_revenue / total_spend
+                ELSE 0
+            END AS roi
+        FROM daily_metrics
+        ORDER BY day;
+        """
+        result = execute_query(alt_query, empty_roi_trend)
+        print(f"DEBUG ROI trend: Retrieved {len(result)} data points with alternative query")
+    
+    return jsonify(result)
 
 @app.route('/api/pipeline_health')
 def pipeline_health():

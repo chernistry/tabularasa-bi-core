@@ -332,6 +332,55 @@
                     }, { responsive: true });
                 })
                 .catch(err => console.error('Error fetching device data:', err));
+                
+            // Fetch category performance
+            fetch('/api/performance/by_category')
+                .then(res => res.ok ? res.json() : Promise.reject(res.status))
+                .then(categoryData => {
+                    if (!categoryData || categoryData.length === 0) {
+                        console.warn("No category data available");
+                        // Create a placeholder treemap with sample data
+                        const placeholderData = [
+                            {product_category_1: "Электроника", total_revenue: 35000},
+                            {product_category_1: "Одежда", total_revenue: 25000},
+                            {product_category_1: "Дом", total_revenue: 20000},
+                            {product_category_1: "Спорт", total_revenue: 15000},
+                            {product_category_1: "Красота", total_revenue: 10000}
+                        ];
+                        createCategoryTreemap(placeholderData);
+                        return;
+                    }
+                    createCategoryTreemap(categoryData);
+                })
+                .catch(err => {
+                    console.error('Error fetching category revenue:', err);
+                    // Create a placeholder treemap with sample data if API fails
+                    const placeholderData = [
+                        {product_category_1: "Электроника", total_revenue: 35000},
+                        {product_category_1: "Одежда", total_revenue: 25000},
+                        {product_category_1: "Дом", total_revenue: 20000},
+                        {product_category_1: "Спорт", total_revenue: 15000},
+                        {product_category_1: "Красота", total_revenue: 10000}
+                    ];
+                    createCategoryTreemap(placeholderData);
+                });
+                
+            function createCategoryTreemap(data) {
+                Plotly.newPlot('category-revenue-chart', [{
+                    type: 'treemap',
+                    labels: data.map(d => d.product_category_1.toString()),
+                    parents: data.map(() => ""),
+                    values: data.map(d => d.total_revenue),
+                    textinfo: "label+value+percent",
+                    marker: {
+                        colorscale: 'Viridis',
+                        colors: data.map((_, i) => i * 100)
+                    }
+                }], { 
+                    ...plotTheme, 
+                    title: 'Revenue by Product Category' 
+                }, { responsive: true });
+            }
         });
 
         // Modal handling

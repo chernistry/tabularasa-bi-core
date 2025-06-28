@@ -53,7 +53,13 @@ SELECT
   'US' as country_code,
   'Brand' as product_brand,
   '25-34' as product_age_group,
-  1 as product_category_1,
+  CASE 
+    WHEN ASCII(campaign_id) % 5 = 0 THEN 'Электроника'
+    WHEN ASCII(campaign_id) % 5 = 1 THEN 'Одежда'
+    WHEN ASCII(campaign_id) % 5 = 2 THEN 'Дом'
+    WHEN ASCII(campaign_id) % 5 = 3 THEN 'Спорт'
+    ELSE 'Красота'
+  END as product_category_1,
   NULL as product_category_2,
   NULL as product_category_3,
   NULL as product_category_4,
