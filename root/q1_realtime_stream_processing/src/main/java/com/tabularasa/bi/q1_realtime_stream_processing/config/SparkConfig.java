@@ -103,16 +103,40 @@ public class SparkConfig implements DisposableBean {
             // Use Kryo serializer for better performance
             .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
             .set("spark.kryo.registrator", kryoRegistrator)
+            // Increase the buffer size for serialization
+            .set("spark.kryoserializer.buffer.max", "512m")
+            .set("spark.kryoserializer.buffer", "256k")
+            // Enable class registration for Kryo
+            .set("spark.kryo.registrationRequired", "false")
+            // Allow Kryo to serialize unregistered classes
+            .set("spark.kryo.unsafe", "true")
+            
+            // Use Java serializer for problematic classes
+            .set("spark.serializer.objectStreamReset", "100")
+            .set("spark.serializer.javaSerializerReuse", "true")
+            .set("spark.serializer.useJavaSerializer", "true")
+            
+            // Settings to fix serialization issues with Scala collections
+            .set("spark.executor.extraJavaOptions", 
+                 "-Dscala.collection.immutable.List.throwExceptionOnDetach=false " +
+                 "-Dscala.collection.immutable.Vector.throwExceptionOnDetach=false " +
+                 "-Dscala.collection.Seq.throwExceptionOnDetach=false " +
+                 "-Djdk.serialFilter.allowList=scala.**,org.apache.spark.** " +
+                 "-Dsun.io.serialization.extendedDebugInfo=true")
+            .set("spark.driver.extraJavaOptions", 
+                 "-Dscala.collection.immutable.List.throwExceptionOnDetach=false " +
+                 "-Dscala.collection.immutable.Vector.throwExceptionOnDetach=false " +
+                 "-Dscala.collection.Seq.throwExceptionOnDetach=false " +
+                 "-Djdk.serialFilter.allowList=scala.**,org.apache.spark.** " +
+                 "-Dsun.io.serialization.extendedDebugInfo=true")
             
             .set("spark.sql.warehouse.dir", "/tmp/spark-warehouse")
             .set("spark.sql.legacy.timeParserPolicy", "LEGACY")
             .set("spark.sql.shuffle.partitions", String.valueOf(shufflePartitions))
 
-            // Enable Adaptive Query Execution (AQE)
-            .set("spark.sql.adaptive.enabled", "true")
-            .set("spark.sql.adaptive.coalescePartitions.enabled", "true")
-            .set("spark.sql.adaptive.skewJoin.enabled", "true")
-            .set("spark.sql.adaptive.localShuffleReader.enabled", "true")
+            // Disable Adaptive Query Execution (AQE) for Streaming
+            // Logs show that this feature is not supported in streaming context
+            .set("spark.sql.adaptive.enabled", "false")
 
             // Resource settings
             .set("spark.driver.memory", driverMemory)
@@ -143,6 +167,15 @@ public class SparkConfig implements DisposableBean {
             // Fix class loading issues
             .set("spark.driver.userClassPathFirst", "true")
             .set("spark.executor.userClassPathFirst", "true")
+            
+            // Settings to reduce parallelism and prevent serialization issues
+            .set("spark.default.parallelism", "1")
+            .set("spark.sql.shuffle.partitions", "1")
+            .set("spark.sql.sources.parallelPartitionDiscovery.parallelism", "1")
+            .set("spark.sql.execution.arrow.maxRecordsPerBatch", "10000")
+            
+            // Disable code generation that may cause serialization issues
+            .set("spark.sql.codegen.wholeStage", "false")
             
             // Set logging level through configuration
             .set("spark.log.level", "WARN");

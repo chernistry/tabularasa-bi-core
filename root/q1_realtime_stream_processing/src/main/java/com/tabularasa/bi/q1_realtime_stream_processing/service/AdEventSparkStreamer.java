@@ -196,8 +196,8 @@ public class AdEventSparkStreamer {
                 // Create stream from Kafka with corrected settings
                 DataStreamReader streamReader = sparkSession.readStream()
                     .format("kafka")
-                    .option("minPartitions", "1") // Set minimal partitions to avoid excessive parallelism
-                    .option("maxOffsetsPerTrigger", 5000); // Explicit limit to avoid memory issues
+                    .option("minPartitions", "1") // Уменьшаем до 1 для предотвращения проблем с сериализацией
+                    .option("maxOffsetsPerTrigger", 1000); // Уменьшаем лимит для снижения нагрузки на память
                 
                 // Apply all options directly to avoid string format issues
                 for (Map.Entry<String, String> option : streamOptions.entrySet()) {
@@ -218,6 +218,9 @@ public class AdEventSparkStreamer {
                     .select("data.*", "key", "topic", "partition", "offset", "kafka_timestamp")
                     .filter(functions.col("campaign_id").isNotNull());
                 
+                // Принудительно уменьшаем количество партиций до 1
+                jsonStream = jsonStream.coalesce(1);
+                
                 // Aggregate data by campaign_id and event_type with checkpointing
                 Dataset<Row> aggregatedData = jsonStream
                     .withWatermark("timestamp", "1 minute")
@@ -230,6 +233,9 @@ public class AdEventSparkStreamer {
                         functions.count("*").as("event_count"),
                         functions.sum("bid_amount_usd").as("total_bid_amount")
                     );
+                
+                // Принудительно уменьшаем количество партиций результата до 1
+                aggregatedData = aggregatedData.coalesce(1);
 
                 // Write the aggregated data to the database
                 this.streamingQuery = aggregatedData.writeStream()
@@ -255,51 +261,79 @@ public class AdEventSparkStreamer {
         if (batchDF.isEmpty()) {
             return;
         }
-        batchDF.persist();
-        log.info("Processing batch ID: {}", batchId);
-
-        String upsertSql = "INSERT INTO aggregated_campaign_stats (campaign_id, event_type, window_start_time, window_end_time, event_count, total_bid_amount, updated_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, NOW()) " +
-                "ON CONFLICT (campaign_id, event_type, window_start_time) DO UPDATE SET " +
-                "event_count = aggregated_campaign_stats.event_count + EXCLUDED.event_count, " +
-                "total_bid_amount = aggregated_campaign_stats.total_bid_amount + EXCLUDED.total_bid_amount, " +
-                "updated_at = NOW()";
-
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(upsertSql)) {
-
-            batchDF.foreachPartition(partition -> {
-                try (Connection partitionConnection = dataSource.getConnection();
-                     PreparedStatement partitionStatement = partitionConnection.prepareStatement(upsertSql)) {
+        
+        try {
+            // Вместо вызова batchDF.persist() и batchDF.count(), которые могут вызвать проблемы с сериализацией,
+            // используем более простой подход с collect() для маленьких батчей
+            log.info("Processing batch ID: {}", batchId);
+            
+            // Преобразуем данные в локальную коллекцию Java-объектов
+            List<Row> rows = batchDF.collectAsList();
+            log.info("Batch {} contains {} rows", batchId, rows.size());
+            
+            if (rows.isEmpty()) {
+                log.warn("Batch {} is empty after collect, skipping", batchId);
+                return;
+            }
+            
+            // Обработка данных напрямую, без использования Spark DataFrame API
+            try (Connection connection = dataSource.getConnection()) {
+                connection.setAutoCommit(false);
+                
+                String upsertSql = "INSERT INTO aggregated_campaign_stats (campaign_id, event_type, window_start_time, window_end_time, event_count, total_bid_amount, updated_at) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, NOW()) " +
+                        "ON CONFLICT (campaign_id, event_type, window_start_time) DO UPDATE SET " +
+                        "event_count = aggregated_campaign_stats.event_count + EXCLUDED.event_count, " +
+                        "total_bid_amount = aggregated_campaign_stats.total_bid_amount + EXCLUDED.total_bid_amount, " +
+                        "updated_at = NOW()";
+                
+                try (PreparedStatement statement = connection.prepareStatement(upsertSql)) {
+                    int count = 0;
                     
-                    partition.forEachRemaining(row -> {
+                    for (Row row : rows) {
                         try {
                             Row window = row.getStruct(0);
                             Timestamp windowStart = window.getTimestamp(0);
                             Timestamp windowEnd = window.getTimestamp(1);
-
-                            partitionStatement.setString(1, row.getString(1));
-                            partitionStatement.setString(2, row.getString(2));
-                            partitionStatement.setTimestamp(3, windowStart);
-                            partitionStatement.setTimestamp(4, windowEnd);
-                            partitionStatement.setLong(5, row.getLong(3));
-                            partitionStatement.setBigDecimal(6, row.getDecimal(4));
-                            partitionStatement.addBatch();
+                            
+                            statement.setString(1, row.getString(1)); // campaign_id
+                            statement.setString(2, row.getString(2)); // event_type
+                            statement.setTimestamp(3, windowStart);   // window_start_time
+                            statement.setTimestamp(4, windowEnd);     // window_end_time
+                            statement.setLong(5, row.getLong(3));     // event_count
+                            statement.setBigDecimal(6, row.getDecimal(4)); // total_bid_amount
+                            statement.addBatch();
+                            count++;
+                            
+                            if (count % 100 == 0) {
+                                statement.executeBatch();
+                                log.debug("Executed batch of {} records", count);
+                            }
                         } catch (Exception e) {
                             log.error("Error processing row: {}", row.toString(), e);
                         }
-                    });
-                    partitionStatement.executeBatch();
+                    }
+                    
+                    if (count % 100 != 0) {
+                        statement.executeBatch();
+                    }
+                    
+                    connection.commit();
+                    log.info("Successfully committed {} records to database", count);
                 } catch (SQLException e) {
-                    log.error("Error processing partition", e);
-                    throw new RuntimeException(e);
+                    log.error("Error executing batch", e);
+                    try {
+                        connection.rollback();
+                        log.info("Transaction rolled back");
+                    } catch (SQLException re) {
+                        log.error("Error during rollback", re);
+                    }
                 }
-            });
-
+            } catch (Exception e) {
+                log.error("Error processing batch {}", batchId, e);
+            }
         } catch (Exception e) {
-            log.error("Error processing batch {}", batchId, e);
-        } finally {
-            batchDF.unpersist();
+            log.error("Error collecting batch data {}", batchId, e);
         }
     }
     

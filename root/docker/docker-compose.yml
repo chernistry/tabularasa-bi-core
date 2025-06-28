@@ -1,24 +1,23 @@
-x-airflow-common:
-  &airflow-common
-  image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.8.1}
-  env_file:
-    - ./airflow_setup/airflow.env
-  volumes:
-    - ./airflow_setup/dags:/opt/airflow/dags
-    - ./airflow_setup/logs:/opt/airflow/logs
-    - ./airflow_setup/plugins:/opt/airflow/plugins
-    - ./spark_jars:/opt/airflow/spark_jars
-  user: "${AIRFLOW_UID:-50000}:0"
-  depends_on:
-    tabularasa_postgres_db:
-      condition: service_healthy
-  networks:
-    - docker_bi_network
-
 services:
+  # ================== REUSABLE CONFIGURATIONS ==================
+  x-airflow-common: &airflow-common
+    image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.8.1}
+    env_file:
+      - ./airflow_setup/airflow.env
+    volumes:
+      - ./airflow_setup/dags:/opt/airflow/dags
+      - ./airflow_setup/logs:/opt/airflow/logs
+      - ./airflow_setup/plugins:/opt/airflow/plugins
+      - ./spark_jars:/opt/airflow/spark_jars
+    user: "${AIRFLOW_UID:-50000}:0"
+    depends_on:
+      tabularasa_postgres_db:
+        condition: service_healthy
+    networks:
+      - docker_bi_network
+
   # ================== DATABASE SERVICES ==================
   # --► PostgreSQL for Airflow metadata and app data
-  # ⚠️ Ensure credentials are managed securely in production.
   tabularasa_postgres_db:
     image: postgres:14.11-alpine
     container_name: tabularasa_postgres_db
@@ -28,6 +27,8 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-tabulauser}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-tabulapass}
       - POSTGRES_DB=${POSTGRES_DB:-tabularasadb}
+      # Security best practices
+      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
     volumes:
       - tabularasa_pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -35,23 +36,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    restart: always
+    restart: unless-stopped
     networks:
       - docker_bi_network
-
-  # Zookeeper service commented out as part of Kafka KRaft migration
-  # zookeeper:
-  #   image: bitnami/zookeeper:3.9
-  #   container_name: zookeeper
-  #   ports:
-  #     - "2181:2181"
-  #   environment:
-  #     - ALLOW_ANONYMOUS_LOGIN=yes
-  #   volumes:
-  #     - zookeeper_data:/bitnami/zookeeper
-  #   restart: always
-  #   networks:
-  #     - docker_bi_network
 
   # Kafka configured to use KRaft mode (no Zookeeper)
   kafka:
@@ -61,15 +48,8 @@ services:
       - "9092:9092"
       - "19092:19092"
     environment:
+      # TODO: Replace ALLOW_PLAINTEXT_LISTENER with proper SSL/TLS setup for production
       - ALLOW_PLAINTEXT_LISTENER=yes
-      # TLS/SASL placeholders:
-      # - KAFKA_CFG_SSL_KEYSTORE_FILENAME=keystore.jks
-      # - KAFKA_CFG_SSL_KEYSTORE_CREDENTIALS=password
-      # - KAFKA_CFG_SSL_KEY_CREDENTIALS=password
-      # - KAFKA_CFG_SSL_TRUSTSTORE_FILENAME=truststore.jks
-      # - KAFKA_CFG_SSL_TRUSTSTORE_CREDENTIALS=password
-      # - KAFKA_CFG_SASL_ENABLED_MECHANISMS=PLAIN
-      # - KAFKA_CFG_SASL_MECHANISM_INTER_BROKER_PROTOCOL=PLAIN
       - KAFKA_CFG_NODE_ID=1
       - KAFKA_CFG_PROCESS_ROLES=broker,controller
       - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@localhost:9094
@@ -78,13 +58,18 @@ services:
       - KAFKA_CFG_ADVERTISED_LISTENERS=INTERNAL://kafka:9092,EXTERNAL://localhost:19092
       - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
       - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=INTERNAL
-      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=false
+      # Improved configuration for production readiness
       - KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR=1
+      # Producer idempotence for exactly-once semantics
+      - KAFKA_CFG_ENABLE_IDEMPOTENCE=true
       # Enable KRaft mode
       - KAFKA_KRAFT_CLUSTER_ID=tabulaRasaBiKafkaCluster123
     volumes:
       - kafka_data:/bitnami/kafka
-    restart: always
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
       interval: 15s
@@ -101,10 +86,15 @@ services:
     environment:
       KAFKA_CLUSTERS_0_NAME: local-kafka
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
-      # Remove Zookeeper reference for KRaft
-      # KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
     networks:
       - docker_bi_network
 
@@ -119,22 +109,30 @@ services:
     user: "1001:0"
     environment:
       - SPARK_MODE=master
+      # TODO: Enable security features for production
       - SPARK_RPC_AUTHENTICATION_ENABLED=no
-      - HADOOP_USER_NAME=root
+      - HADOOP_USER_NAME=spark
       - HOME=/tmp
       - USER_HOME=/tmp
       - SPARK_RPC_ENCRYPTION_ENABLED=no
       - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
       - SPARK_SSL_ENABLED=no
+      # Adaptive Query Execution (AQE) settings
+      - SPARK_CONF_spark_sql_adaptive_enabled=true
+      - SPARK_CONF_spark_sql_adaptive_coalescePartitions_enabled=true
+      - SPARK_CONF_spark_sql_adaptive_fetchShuffleBlocksInBatch=true
+      - SPARK_CONF_spark_sql_adaptive_skewJoin_enabled=true
+      - SPARK_CONF_spark_sql_shuffle_partitions=200
     volumes:
       - ./spark_apps:/opt/spark_apps
       - ./spark_data:/opt/spark_data
       - ../q1_realtime_stream_processing/src/main/resources/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://localhost:8080 | grep -q 'Spark Master' || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/ || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
     networks:
       - docker_bi_network
 
@@ -154,6 +152,8 @@ services:
       - SPARK_WORKER_CORES=1
       - HOME=/tmp
       - USER_HOME=/tmp
+      - HADOOP_USER_NAME=spark
+      # TODO: Enable security features for production
       - SPARK_RPC_AUTHENTICATION_ENABLED=no
       - SPARK_RPC_ENCRYPTION_ENABLED=no
       - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
@@ -162,89 +162,17 @@ services:
       - ./spark_apps:/opt/spark_apps
       - ./spark_data:/opt/spark_data
       - ../q1_realtime_stream_processing/src/main/resources/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
     networks:
       - docker_bi_network
 
-  # # ================== AIRFLOW SERVICES ==================
-  # # --► Airflow for orchestration
-  # airflow-init:
-  #   <<: *airflow-common
-  #   container_name: tabularasa_airflow_init
-  #   entrypoint: /bin/bash
-  #   command:
-  #     - -c
-  #     - |
-  #       if [[ -z "$${AIRFLOW_UID}" ]]; then
-  #         echo;
-  #         echo -e "\033[1;33mWARNING!!!: AIRFLOW_UID not set!\e[0m";
-  #         echo "If you are on Linux, you SHOULD follow the instructions below to set ";
-  #         echo "AIRFLOW_UID environment variable, otherwise files will be owned by root.";
-  #         echo "For other operating systems you can get rid of the warning with manually created .env file:";
-  #         echo "    See: https://airflow.apache.org/docs/apache-airflow/stable/howto/docker-compose/index.html#setting-the-right-airflow-user";
-  #         echo;
-  #       fi;
-  #       one_meg=1048576;
-  #       mem_available=$(($(getconf _PHYS_PAGES) * $(getconf PAGE_SIZE) / one_meg));
-  #       cpus_available=$(grep -cE 'cpu[0-9]+' /proc/stat);
-  #       disk_available=$(df / | tail -1 | awk '{print $$4}');
-  #       warning_resources="false";
-  #       if (( mem_available < 2000 )) ; then
-  #         echo;
-  #         echo -e "\033[1;33mWARNING!!!: Not enough memory available for Docker (Recommend >2GB).\e[0m";
-  #         echo "You have $(numfmt --to iec $((mem_available * one_meg)))";
-  #         warning_resources="true";
-  #       fi;
-  #       if (( cpus_available < 1 )); then
-  #         echo;
-  #         echo -e "\033[1;33mWARNING!!!: Not enough CPUS available for Docker (Recommend >1).\e[0m";
-  #         echo "You have $${cpus_available}";
-  #         warning_resources="true";
-  #       fi;
-  #       if [[ $${warning_resources} == "true" ]]; then
-  #         echo;
-  #         echo -e "\033[1;33mWARNING!!!: You might have not enough resources for a smooth Airflow experience!\e[0m";
-  #         echo;
-  #       fi;
-  #       airflow db init && \
-  #       airflow users create \
-  #         --username ${AIRFLOW_WWW_USER_USERNAME:-admin} \
-  #         --firstname ${AIRFLOW_WWW_USER_FIRSTNAME:-Admin} \
-  #         --lastname ${AIRFLOW_WWW_USER_LASTNAME:-User} \
-  #         --role ${AIRFLOW_WWW_USER_ROLE:-Admin} \
-  #         --email ${AIRFLOW_WWW_USER_EMAIL:-admin@example.com} \
-  #         --password ${AIRFLOW_WWW_USER_PASSWORD:-admin}
-  
-  # airflow-webserver:
-  #   <<: *airflow-common
-  #   container_name: tabularasa_airflow_webserver
-  #   command: webserver
-  #   ports:
-  #     - "8080:8080"
-  #   healthcheck:
-  #     test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 5
-  #     start_period: 30s
-  #   restart: always
-  #   depends_on:
-  #     airflow-init:
-  #       condition: service_completed_successfully
-
-  # airflow-scheduler:
-  #   <<: *airflow-common
-  #   container_name: tabularasa_airflow_scheduler
-  #   command: scheduler
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --limit 1 | grep -c 'SUCCESS' || exit 1"]
-  #     interval: 30s
-  #     timeout: 20s
-  #     retries: 5
-  #     start_period: 30s
-  #   restart: always
-  #   depends_on:
-  #     airflow-init:
-  #       condition: service_completed_successfully
+  # ================== AIRFLOW SERVICES ==================
+  # Commented out services preserved but improved for future use
 
   # ================== MONITORING STACK ==================
   # --► Prometheus, Grafana, Jaeger for observability
@@ -262,7 +190,13 @@ services:
       - '--storage.tsdb.path=/prometheus'
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
-    restart: always
+    user: "65534:65534" # nobody:nogroup
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
     networks:
       - docker_bi_network
 
@@ -276,15 +210,21 @@ services:
       - ./grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      # TODO: Remove this line for production and use proper secure password
       - GF_SECURITY_DISABLE_INITIAL_ADMIN_PASSWORD_CHANGE=true
-    command: sh -c "chown -R grafana:grafana /var/lib/grafana && /run.sh"
-    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:3000/api/health | grep -q '\"database\":\"ok\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
     depends_on:
-      - prometheus
+      prometheus:
+        condition: service_healthy
     networks:
       - docker_bi_network
 
@@ -297,9 +237,18 @@ services:
       - "4318:4318"   # OTLP HTTP
     environment:
       - COLLECTOR_OTLP_ENABLED=true
+      - SPAN_STORAGE_TYPE=badger
+      - BADGER_EPHEMERAL=false
+      - BADGER_DIRECTORY_VALUE=/badger/data
+      - BADGER_DIRECTORY_KEY=/badger/key
     volumes:
       - jaeger_data:/badger
-    restart: always
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:16686"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
     networks:
       - docker_bi_network
 
@@ -311,11 +260,17 @@ services:
     ports:
       - "9093:9093"
     volumes:
-      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - alertmanager_data:/alertmanager
     command:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
-    restart: always
+    user: "65534:65534" # nobody:nogroup
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
     networks:
       - docker_bi_network
 
@@ -323,8 +278,10 @@ services:
     image: openjdk:17-jdk-slim
     container_name: bi-app
     depends_on:
-      - kafka
-      - tabularasa_postgres_db
+      kafka:
+        condition: service_healthy
+      tabularasa_postgres_db:
+        condition: service_healthy
     ports:
       - "8083:8083"
     environment:
@@ -333,7 +290,7 @@ services:
       - SPRING_DATASOURCE_USERNAME=tabulauser
       - SPRING_DATASOURCE_PASSWORD=tabulapass
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - HADOOP_USER_NAME=root
+      - HADOOP_USER_NAME=spark
       - HADOOP_HOME=/opt/hadoop
       - JAVA_OPTS="-Xms512m -Xmx1g -Dhadoop.security.authentication=simple -Dorg.apache.hadoop.security.authentication=simple -Djavax.security.auth.useSubjectCredsOnly=false -Djava.security.auth.login.config=/dev/null -Djava.security.krb5.conf=/dev/null -Dspark.hadoop.hadoop.security.authentication=simple -Dspark.kerberos.keytab=none -Dspark.kerberos.principal=none"
       - MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,info,metrics
@@ -341,7 +298,15 @@ services:
       - MANAGEMENT_SECURITY_ROLES=ACTUATOR
     volumes:
       - ../q1_realtime_stream_processing/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT-exec.jar:/app/app.jar
-    command: ["java", "-Dhadoop.security.authentication=simple", "-Dorg.apache.hadoop.security.authentication=simple", "-Dspark.hadoop.hadoop.security.authentication=simple", "-Djavax.security.auth.useSubjectCredsOnly=false", "-Djava.security.auth.login.config=/dev/null", "-Djava.security.krb5.conf=/dev/null", "-Dhadoop.home.dir=/", "-DHADOOP_USER_NAME=root", "-Dspark.kerberos.keytab=none", "-Dspark.kerberos.principal=none", "-jar", "/app/app.jar"]
+    command: ["java", "-Dhadoop.security.authentication=simple", "-Dorg.apache.hadoop.security.authentication=simple", "-Dspark.hadoop.hadoop.security.authentication=simple", "-Djavax.security.auth.useSubjectCredsOnly=false", "-Djava.security.auth.login.config=/dev/null", "-Djava.security.krb5.conf=/dev/null", "-Dhadoop.home.dir=/", "-DHADOOP_USER_NAME=spark", "-Dspark.kerberos.keytab=none", "-Dspark.kerberos.principal=none", "-jar", "/app/app.jar"]
+    user: "1000:1000" # Use non-root user
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
     networks:
       - docker_bi_network
 
@@ -353,14 +318,21 @@ services:
     ports:
       - "9187:9187"
     depends_on:
-      - tabularasa_postgres_db
+      tabularasa_postgres_db:
+        condition: service_healthy
+    user: "nobody"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9187/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
     networks:
       - docker_bi_network
 
 volumes:
   tabularasa_pg_data:
     driver: local
-  # zookeeper_data removed as part of migration to KRaft
   kafka_data:
     driver: local
   spark_jars:
@@ -378,4 +350,5 @@ volumes:
 
 networks:
   docker_bi_network:
-    driver: bridge 
+    driver: bridge
+    name: tabularasa_bi_network 

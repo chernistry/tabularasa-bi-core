@@ -17,6 +17,8 @@ import java.sql.SQLException;
 import java.util.Properties;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.List;
+import java.sql.Timestamp;
 
 import static org.apache.spark.sql.functions.*;
 
@@ -71,13 +73,28 @@ public class AdEventSparkStreamer {
         LOGGER.info("Starting with parameters: kafka={}, topic={}, dbUrl={}, dbUser={}", 
                 kafkaBootstrapServers, adEventsTopic, dbUrl, dbUsername);
 
+        // Setting system properties to resolve serialization issues
+        System.setProperty("scala.collection.immutable.List.throwExceptionOnDetach", "false");
+        System.setProperty("scala.collection.immutable.Vector.throwExceptionOnDetach", "false");
+        System.setProperty("scala.collection.Seq.throwExceptionOnDetach", "false");
+        System.setProperty("sun.io.serialization.extendedDebugInfo", "true");
+        
         SparkSession spark = SparkSession.builder()
                 .appName("AdEventSparkStreamer")
                 .master("local[2]")
-                .config("spark.sql.shuffle.partitions", "2")
-                .config("spark.default.parallelism", "2")
+                .config("spark.sql.shuffle.partitions", "1")
+                .config("spark.default.parallelism", "1")
                 .config("spark.streaming.kafka.maxRatePerPartition", "100")
                 .config("spark.ui.enabled", "true")
+                .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+                .config("spark.kryo.registrator", "com.tabularasa.bi.q1_realtime_stream_processing.serialization.KryoRegistrator")
+                .config("spark.kryoserializer.buffer.max", "512m")
+                .config("spark.kryoserializer.buffer", "256k")
+                .config("spark.kryo.registrationRequired", "false")
+                .config("spark.kryo.unsafe", "true")
+                .config("spark.serializer.objectStreamReset", "100")
+                .config("spark.sql.adaptive.enabled", "false")
+                .config("spark.sql.codegen.wholeStage", "false")
                 .getOrCreate();
 
         AdEventSparkStreamer streamer = new AdEventSparkStreamer();
@@ -103,7 +120,7 @@ public class AdEventSparkStreamer {
                 .option("startingOffsets", "earliest")
                 .option("maxOffsetsPerTrigger", "500")
                 .option("minPartitions", "1")
-                .option("maxPartitions", "2")
+                .option("maxPartitions", "1")
                 .load();
 
         LOGGER.info("Kafka source initialized. Parsing JSON data...");
@@ -151,30 +168,23 @@ public class AdEventSparkStreamer {
                 .withColumn("sales_amount_euro", coalesce(col("sales_amount_euro"), lit(0.0)))
                 .withColumn("sale", coalesce(col("sale"), lit(false)));
 
-        enrichedDF = enrichedDF.coalesce(2);
+        // Forcibly reduce the number of partitions to 1
+        enrichedDF = enrichedDF.coalesce(1);
 
         Dataset<Row> windowedDF = enrichedDF
                 .withWatermark("event_timestamp", "10 seconds")
                 .groupBy(
                         window(col("event_timestamp"), "1 minute"),
                         col("campaign_id"),
-                        col("event_type"),
-                        col("device_type"),
-                        col("country_code"),
-                        col("product_brand"),
-                        col("product_age_group"),
-                        col("product_category_1"),
-                        col("product_category_2"),
-                        col("product_category_3"),
-                        col("product_category_4"),
-                        col("product_category_5"),
-                        col("product_category_6"),
-                        col("product_category_7")
+                        col("event_type")
                 )
                 .agg(
                         count("*").alias("event_count"),
                         sum("total_bid_amount").alias("total_bid_amount")
                 );
+                
+        // Forcibly reduce the number of result partitions to 1
+        windowedDF = windowedDF.coalesce(1);
 
         LOGGER.info("Starting streaming query with windowing to PostgreSQL...");
 
@@ -194,15 +204,17 @@ public class AdEventSparkStreamer {
                         return;
                     }
                     
-                    batchDF.persist();
-                    LOGGER.info("Batch {} contains {} rows", batchId, batchDF.count());
-
-                    Dataset<Row> processedDF = batchDF
-                            .withColumn("window_start_time", col("window.start"))
-                            .withColumn("window_end_time", col("window.end"))
-                            .drop("window");
-
-                    processedDF.foreachPartition((ForeachPartitionFunction<Row>) partitionOfRecords -> {
+                    try {
+                        // Convert data to a local collection of Java objects
+                        List<Row> rows = batchDF.collectAsList();
+                        LOGGER.info("Batch {} contains {} rows", batchId, rows.size());
+                        
+                        if (rows.isEmpty()) {
+                            LOGGER.warn("Batch {} is empty after collect, skipping", batchId);
+                            return;
+                        }
+                        
+                        // Process data directly via JDBC
                         AtomicInteger retryCount = new AtomicInteger(0);
                         boolean success = false;
                         
@@ -220,23 +232,31 @@ public class AdEventSparkStreamer {
                                                 "updated_at = CURRENT_TIMESTAMP",
                                         TARGET_TABLE
                                 );
-
+                                
                                 try (PreparedStatement statement = connection.prepareStatement(upsertSQL)) {
                                     int count = 0;
-                                    while (partitionOfRecords.hasNext()) {
-                                        Row record = partitionOfRecords.next();
-                                        statement.setString(1, record.getString(record.fieldIndex("campaign_id")));
-                                        statement.setString(2, record.getString(record.fieldIndex("event_type")));
-                                        statement.setTimestamp(3, record.getTimestamp(record.fieldIndex("window_start_time")));
-                                        statement.setTimestamp(4, record.getTimestamp(record.fieldIndex("window_end_time")));
-                                        statement.setLong(5, record.getLong(record.fieldIndex("event_count")));
-                                        statement.setDouble(6, record.getDouble(record.fieldIndex("total_bid_amount")));
-                                        statement.addBatch();
-                                        count++;
-                                        
-                                        if (count % 100 == 0) {
-                                            statement.executeBatch();
-                                            LOGGER.debug("Executed batch of {} records", count);
+                                    
+                                    for (Row row : rows) {
+                                        try {
+                                            Row window = row.getStruct(0);
+                                            Timestamp windowStart = window.getTimestamp(0);
+                                            Timestamp windowEnd = window.getTimestamp(1);
+                                            
+                                            statement.setString(1, row.getString(1)); // campaign_id
+                                            statement.setString(2, row.getString(2)); // event_type
+                                            statement.setTimestamp(3, windowStart);   // window_start_time
+                                            statement.setTimestamp(4, windowEnd);     // window_end_time
+                                            statement.setLong(5, row.getLong(3));     // event_count
+                                            statement.setDouble(6, row.getDouble(4)); // total_bid_amount
+                                            statement.addBatch();
+                                            count++;
+                                            
+                                            if (count % 100 == 0) {
+                                                statement.executeBatch();
+                                                LOGGER.debug("Executed batch of {} records", count);
+                                            }
+                                        } catch (Exception e) {
+                                            LOGGER.error("Error processing row: {}", row.toString(), e);
                                         }
                                     }
                                     
@@ -286,9 +306,9 @@ public class AdEventSparkStreamer {
                                 }
                             }
                         }
-                    });
-
-                    batchDF.unpersist();
+                    } catch (Exception e) {
+                        LOGGER.error("Error collecting batch data {}", batchId, e);
+                    }
                 })
                 .option("checkpointLocation", "/tmp/spark-checkpoints/q1_ad_stream")
                 .start();

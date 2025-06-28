@@ -61,6 +61,11 @@ public class KryoRegistrator implements org.apache.spark.serializer.KryoRegistra
             kryo.register(Class.forName("scala.collection.immutable.Set"));
             kryo.register(Class.forName("scala.collection.immutable.Map"));
             
+            // Register Seq interface and its implementations
+            kryo.register(Class.forName("scala.collection.Seq"));
+            kryo.register(Class.forName("scala.collection.immutable.Seq"));
+            kryo.register(Class.forName("scala.collection.mutable.Seq"));
+            
             // Additional Scala collections needed for Spark
             kryo.register(Class.forName("scala.collection.immutable.Nil$"));
             kryo.register(Class.forName("scala.collection.immutable.$colon$colon"));
@@ -79,10 +84,30 @@ public class KryoRegistrator implements org.apache.spark.serializer.KryoRegistra
             kryo.register(Class.forName("scala.collection.mutable.ListBuffer"));
             
             // Seq and collection interfaces
-            kryo.register(Class.forName("scala.collection.Seq"));
-            kryo.register(Class.forName("scala.collection.immutable.Seq"));
-            kryo.register(Class.forName("scala.collection.mutable.Seq"));
             kryo.register(Class.forName("scala.collection.generic.GenericCompanion"));
+            
+            // Registration of classes to solve serialization issues
+            kryo.register(Class.forName("scala.collection.immutable.List$$anon$1"));
+            kryo.register(Class.forName("scala.collection.AbstractSeq"));
+            kryo.register(Class.forName("scala.collection.AbstractIterable"));
+            kryo.register(Class.forName("scala.collection.AbstractTraversable"));
+            
+            // Register DataSourceRDDPartition class with a special serializer
+            Class<?> dataSourceRDDPartitionClass = Class.forName("org.apache.spark.sql.execution.datasources.v2.DataSourceRDDPartition");
+            kryo.register(dataSourceRDDPartitionClass, new DataSourceRDDPartitionSerializer());
+            
+            // Registration of specific types for DataSourceRDDPartition
+            kryo.register(Class.forName("org.apache.spark.sql.execution.datasources.v2.DataSourceRDDPartition"));
+            
+            // Important: register the specific type used in the inputPartitions field
+            kryo.register(Class.forName("scala.collection.immutable.List"));
+            
+            // Register classes used in Spark SQL for partition serialization
+            kryo.register(Class.forName("org.apache.spark.sql.execution.datasources.v2.DataSourceRDD"));
+            kryo.register(Class.forName("org.apache.spark.sql.connector.read.InputPartition"));
+            kryo.register(Class.forName("org.apache.spark.sql.connector.read.PartitionReader"));
+            kryo.register(Class.forName("org.apache.spark.sql.connector.read.PartitionReaderFactory"));
+            
         } catch (ClassNotFoundException e) {
             // Log the error but continue working
             System.err.println("Warning: Could not register some Scala collections: " + e.getMessage());
@@ -135,6 +160,56 @@ public class KryoRegistrator implements org.apache.spark.serializer.KryoRegistra
             kryo.register(directByteBufferClass, new ByteBufferSerializer());
         } catch (Exception e) {
             System.err.println("Warning: Could not register ByteBuffer implementations: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Special serializer for DataSourceRDDPartition that correctly handles
+     * the inputPartitions field of type scala.collection.Seq
+     */
+    private static class DataSourceRDDPartitionSerializer extends Serializer<Object> {
+        @Override
+        public void write(Kryo kryo, Output output, Object object) {
+            try {
+                // Use reflection to access fields
+                java.lang.reflect.Field indexField = object.getClass().getDeclaredField("index");
+                indexField.setAccessible(true);
+                int index = (int) indexField.get(object);
+                
+                java.lang.reflect.Field inputPartitionsField = object.getClass().getDeclaredField("inputPartitions");
+                inputPartitionsField.setAccessible(true);
+                Object inputPartitions = inputPartitionsField.get(object);
+                
+                // Write index
+                output.writeInt(index);
+                
+                // Write inputPartitions as object
+                kryo.writeClassAndObject(output, inputPartitions);
+                
+            } catch (Exception e) {
+                System.err.println("Error serializing DataSourceRDDPartition: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
+        
+        @Override
+        public Object read(Kryo kryo, Input input, Class type) {
+            try {
+                // Read index
+                int index = input.readInt();
+                
+                // Read inputPartitions as object
+                Object inputPartitions = kryo.readClassAndObject(input);
+                
+                // Create new instance of DataSourceRDDPartition through constructor
+                Object instance = type.getDeclaredConstructor(int.class, Object.class).newInstance(index, inputPartitions);
+                
+                return instance;
+            } catch (Exception e) {
+                System.err.println("Error deserializing DataSourceRDDPartition: " + e.getMessage());
+                e.printStackTrace();
+                return null;
+            }
         }
     }
     
