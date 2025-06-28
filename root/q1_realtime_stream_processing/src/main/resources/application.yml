@@ -1,20 +1,23 @@
+# Common application configuration for both simple and spark profiles
 spring:
   application:
-    name: tabularasa-bi-q1-stream-processing
-  profiles:
-    active: ${SPRING_PROFILES_ACTIVE:simple}
+    name: q1-realtime-stream-processing
+  
+  # Main datasource configuration
   datasource:
     url: jdbc:postgresql://localhost:5432/tabularasadb
     username: tabulauser
     password: tabulapass
     driver-class-name: org.postgresql.Driver
     hikari:
-      # Optimize connection pool
       maximum-pool-size: 10
       minimum-idle: 2
       idle-timeout: 30000
       connection-timeout: 20000
       max-lifetime: 1200000
+      pool-name: SparkStreamProcessor
+  
+  # JPA configuration (used in simple profile)
   jpa:
     hibernate:
       ddl-auto: validate # Prevents automatic schema updates
@@ -28,7 +31,11 @@ spring:
         order_inserts: true
         order_updates: true
     show-sql: false
+  
+  # Kafka configuration for simple mode
   kafka:
+    security:
+      protocol: PLAINTEXT
     bootstrap-servers: localhost:19092
     consumer:
       group-id: q1_stream_consumer_group
@@ -41,14 +48,14 @@ spring:
       batch-size: 16384
       buffer-memory: 33554432
 
-# Application
+# Application-specific Kafka settings
 app:
   kafka:
     bootstrap-servers: ${spring.kafka.bootstrap-servers}
     topics:
       ad-events: ad-events
 
-# Settings for Spark
+# Spark configuration used in spark profile
 spark:
   app:
     name: TabularasaBIStreamProcessor
@@ -74,17 +81,7 @@ spark:
   kryo:
     registrator: com.tabularasa.bi.q1_realtime_stream_processing.serialization.KryoRegistrator
 
-# Settings for logging
-logging:
-  level:
-    root: INFO
-    com.tabularasa: INFO
-    org.apache.kafka: WARN
-    org.apache.spark: WARN
-    org.springframework: INFO
-    org.springframework.kafka: INFO
-
-# Settings for monitoring
+# Configure actuator endpoints
 management:
   endpoints:
     web:
@@ -94,14 +91,21 @@ management:
     health:
       show-details: always
     metrics:
-      enabled: true
-    prometheus:
-      enabled: true
-  metrics:
-    export:
+      export:
       prometheus:
         enabled: true
 
+# Configure server port
 server:
   port: 8083
-  shutdown: graceful 
+
+# Logging configuration
+logging:
+  level:
+    root: INFO
+    com.tabularasa.bi: INFO
+    org.apache.spark: WARN
+    org.spark_project: WARN
+    org.apache.hadoop: WARN
+    org.apache.kafka: WARN
+    org.hibernate: WARN 

@@ -116,13 +116,26 @@ public class KafkaConsumerConfig {
     @Bean(name = "sparkStructuredStreamingKafkaOptions")
     public Map<String, String> sparkStructuredStreamingKafkaOptions() {
         Map<String, String> options = new HashMap<>();
-        options.put("kafka.bootstrap.servers", bootstrapServers);
+        // Important: Use the correct format for structured streaming options
+        options.put("bootstrap.servers", bootstrapServers); // without "kafka." prefix
         options.put("subscribe", "ad-events");
         options.put("startingOffsets", "latest");
         options.put("failOnDataLoss", "false");
         options.put("maxOffsetsPerTrigger", "5000");
-        options.put("kafka.fetch.max.bytes", String.valueOf(fetchMaxBytes));
-        options.put("kafka.max.partition.fetch.bytes", String.valueOf(fetchMaxBytes));
+        options.put("minPartitions", "1");
+        options.put("fetchOffset.numRetries", "3");
+        options.put("fetchOffset.retryIntervalMs", "1000");
+        options.put("maxOffsetsPerTrigger", String.valueOf(maxPollRecords));
+        
+        // Additional options for resilient processing
+        options.put("isolation.level", "read_committed");
+        options.put("includeHeaders", "true");
+        
+        // Memory settings
+        options.put("fetch.max.bytes", String.valueOf(fetchMaxBytes));
+        options.put("max.partition.fetch.bytes", String.valueOf(fetchMaxBytes));
+        options.put("fetch.max.wait.ms", "500");
+        
         return options;
     }
 }

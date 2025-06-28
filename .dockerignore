@@ -1,0 +1,34 @@
+# General VCS
+.git
+
+# Maven / Gradle build directories
+target/
+
+# Compiled class files
+*.class
+
+# Logs
+*.log
+logs/
+
+# IDE directories and files
+.idea/
+.vscode/
+*.iml
+
+# Node
+node_modules/
+
+# Python virtual environments and caches
+venv/
+__pycache__/
+*.py[cod]
+
+# OS generated files
+.DS_Store
+
+# Docker compose files are not required in build context
+**/docker-compose*.yml
+
+# Test containers and artifacts
+debug/ 

@@ -5,13 +5,10 @@ import com.tabularasa.bi.q1_realtime_stream_processing.model.AdEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.serialization.StringDeserializer;
-import org.apache.spark.api.java.JavaRDD;
-import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.sql.*;
 import org.apache.spark.sql.streaming.DataStreamReader;
 import org.apache.spark.sql.streaming.OutputMode;
 import org.apache.spark.sql.streaming.StreamingQuery;
-import org.apache.spark.sql.streaming.StreamingQueryException;
 import org.apache.spark.sql.streaming.Trigger;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructType;
@@ -57,6 +54,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 @Service
 @Slf4j
 @Profile("spark")
+@SuppressWarnings("unused")
 public class AdEventSparkStreamer {
 
     private final SparkSession sparkSession;
@@ -67,7 +65,7 @@ public class AdEventSparkStreamer {
     private final Timer batchProcessingTimer;
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
     private StreamingQuery streamingQuery;
-    private final BasicDataSource dataSource;
+    private final DataSource dataSource;
     private final ReentrantLock shutdownLock = new ReentrantLock();
     private final ThreadPoolTaskExecutor taskExecutor;
     private final JdbcTemplate jdbcTemplate;
@@ -99,11 +97,13 @@ public class AdEventSparkStreamer {
             MeterRegistry meterRegistry, 
             Tracer tracer, 
             JdbcTemplate jdbcTemplate,
+            DataSource dataSource,
             @Qualifier("sparkStructuredStreamingKafkaOptions") Map<String, String> kafkaOptions) {
         this.sparkSession = sparkSession;
         this.meterRegistry = meterRegistry;
         this.tracer = tracer;
         this.jdbcTemplate = jdbcTemplate;
+        this.dataSource = dataSource;
         this.kafkaOptions = kafkaOptions;
         this.processedEventsCounter = meterRegistry.counter("app.events.processed", "type", "ad_event");
         this.failedEventsCounter = meterRegistry.counter("app.events.failed", "type", "ad_event");
@@ -117,57 +117,27 @@ public class AdEventSparkStreamer {
         this.taskExecutor.setThreadNamePrefix("spark-async-");
         this.taskExecutor.initialize();
         
-        // Optimize connection pool
-        this.dataSource = new BasicDataSource();
-        this.dataSource.setDriverClassName(POSTGRES_DRIVER);
-        this.dataSource.setUrl(dbUrl);
-        this.dataSource.setUsername(dbUser);
-        this.dataSource.setPassword(dbPassword);
-        this.dataSource.setInitialSize(2);      // Reduce initial size to save resources
-        this.dataSource.setMaxTotal(10);        // Reduce maximum size
-        this.dataSource.setMaxIdle(5);
-        this.dataSource.setMinIdle(2);
-        this.dataSource.setMaxWaitMillis(10000); // Reduce wait time
-        this.dataSource.setValidationQuery("SELECT 1");
-        this.dataSource.setTestOnBorrow(true);
-        this.dataSource.setTestWhileIdle(true);
-        this.dataSource.setTimeBetweenEvictionRunsMillis(60000);
-        // Add automatic connection recovery
-        this.dataSource.setRemoveAbandonedOnBorrow(true);
-        this.dataSource.setRemoveAbandonedTimeout(60);
-        this.dataSource.setLogAbandoned(true);
-        
         // Check and fix database schema issues
         try {
-            fixDatabaseSchema();
+            ensureDatabaseSchema();
         } catch (Exception e) {
             log.warn("Failed to fix database schema: {}", e.getMessage());
         }
     }
     
     /**
-     * Fix database schema issues by dropping the view that depends on the table
+     * Ensure database schema by creating the table if it doesn't exist.
+     * This is a temporary solution. A proper migration tool should be used.
      */
-    private void fixDatabaseSchema() {
+    private void ensureDatabaseSchema() {
         try {
-            // Check if view exists and drop it if necessary
-            boolean viewExists = jdbcTemplate.queryForObject(
-                "SELECT EXISTS (SELECT 1 FROM pg_views WHERE viewname = 'v_aggregated_campaign_stats')", 
-                Boolean.class);
-                
-            if (viewExists) {
-                log.info("Found view v_aggregated_campaign_stats that depends on our table. Dropping it to prevent schema conflicts.");
-                jdbcTemplate.execute("DROP VIEW IF EXISTS v_aggregated_campaign_stats");
-                log.info("View dropped successfully");
-            }
-            
             // Check if table exists and create it if needed
-            boolean tableExists = jdbcTemplate.queryForObject(
-                "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'aggregated_campaign_stats')", 
+            Boolean tableExists = jdbcTemplate.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'aggregated_campaign_stats')",
                 Boolean.class);
                 
-            if (!tableExists) {
-                log.info("Creating aggregated_campaign_stats table");
+            if (tableExists == null || !tableExists) {
+                log.info("Table 'aggregated_campaign_stats' not found. Creating it.");
                 jdbcTemplate.execute(
                     "CREATE TABLE IF NOT EXISTS aggregated_campaign_stats (" +
                     "id SERIAL PRIMARY KEY, " +
@@ -208,35 +178,45 @@ public class AdEventSparkStreamer {
                     .add("user_id", DataTypes.StringType)
                     .add("bid_amount_usd", DataTypes.DoubleType);
                 
-                // Create options for Kafka considering injected parameters
-                Map<String, String> options = new HashMap<>(kafkaOptions);
-                // Override the topic if it is not set in kafkaOptions
-                if (!options.containsKey("subscribe")) {
-                    options.put("subscribe", inputTopic);
+                // Safe copy of the options map to avoid concurrent modification
+                Map<String, String> streamOptions = new HashMap<>();
+                if (kafkaOptions != null) {
+                    streamOptions.putAll(kafkaOptions);
                 }
                 
-                // Create stream from Kafka with corrected settings
-                DataStreamReader streamReader = sparkSession.readStream().format("kafka");
+                // Set kafka bootstrap servers directly to avoid format mismatch issues
+                // Remove any existing bootstrap servers config to avoid duplicates
+                streamOptions.remove("kafka.bootstrap.servers");
+                streamOptions.remove("bootstrap.servers");
                 
-                // Apply all options from configuration
-                for (Map.Entry<String, String> option : options.entrySet()) {
-                    streamReader = streamReader.option(option.getKey(), option.getValue());
+                // Use the correct format for Spark Structured Streaming
+                streamOptions.put("kafka.bootstrap.servers", kafkaBootstrapServers);
+                streamOptions.put("subscribe", inputTopic);
+                
+                // Create stream from Kafka with corrected settings
+                DataStreamReader streamReader = sparkSession.readStream()
+                    .format("kafka")
+                    .option("minPartitions", "1") // Set minimal partitions to avoid excessive parallelism
+                    .option("maxOffsetsPerTrigger", 5000); // Explicit limit to avoid memory issues
+                
+                // Apply all options directly to avoid string format issues
+                for (Map.Entry<String, String> option : streamOptions.entrySet()) {
+                    if (!option.getKey().equals("format")) { // Skip format as it's already set
+                        streamReader = streamReader.option(option.getKey(), option.getValue());
+                    }
                 }
                 
                 // Load data
                 Dataset<Row> kafkaStream = streamReader.load();
                 
-                // Extract JSON from Kafka and parse it
+                // Extract JSON from Kafka and parse it with increased error tolerance
                 Dataset<Row> jsonStream = kafkaStream
-                    .selectExpr("CAST(value AS STRING) as json")
-                    .select(functions.from_json(functions.col("json"), schema).as("data"))
-                    .select("data.*")
-                    .filter(functions.col("campaign_id").isNotNull())
-                    // Use fewer partitions for local mode
-                    .coalesce(Math.max(2, sparkSession.sparkContext().defaultParallelism() / 2));
-                
-                // Register temporary table for SQL queries
-                jsonStream.createOrReplaceTempView("ad_events");
+                    .selectExpr("CAST(value AS STRING) as json", "CAST(key AS STRING) as key", "topic", "partition", "offset", "timestamp")
+                    .select(functions.from_json(functions.col("json"), schema).as("data"), 
+                            functions.col("key"), functions.col("topic"), functions.col("partition"), 
+                            functions.col("offset"), functions.col("timestamp").as("kafka_timestamp"))
+                    .select("data.*", "key", "topic", "partition", "offset", "kafka_timestamp")
+                    .filter(functions.col("campaign_id").isNotNull());
                 
                 // Aggregate data by campaign_id and event_type with checkpointing
                 Dataset<Row> aggregatedData = jsonStream
@@ -249,233 +229,77 @@ public class AdEventSparkStreamer {
                     .agg(
                         functions.count("*").as("event_count"),
                         functions.sum("bid_amount_usd").as("total_bid_amount")
-                    )
-                    .withColumn("processing_time", functions.current_timestamp());
-                
-                // Create serializable object with database connection parameters
-                final DatabaseConfig dbConfig = new DatabaseConfig(dbUrl, dbUser, dbPassword);
-                
-                // Use foreachBatch with optimized connection pool
-                this.streamingQuery = aggregatedData
-                    .writeStream()
+                    );
+
+                // Write the aggregated data to the database
+                this.streamingQuery = aggregatedData.writeStream()
                     .outputMode(OutputMode.Update())
+                    .foreachBatch(this::processBatch)
                     .option("checkpointLocation", checkpointLocation)
-                    .trigger(Trigger.ProcessingTime("10 seconds"))
-                    .foreachBatch((batchDF, batchId) -> {
-                        Timer.Sample sample = Timer.start();
-                        log.info("Processing batch ID: {}", batchId);
-                        
-                        // Check for empty DataFrame without calling isEmpty()
-                        try {
-                            long count = batchDF.count();
-                            if (count == 0) {
-                                log.info("Batch {} is empty, skipping.", batchId);
-                                return;
-                            }
-                            
-                            // Use a small number of partitions for local processing
-                            Dataset<Row> optimizedDF = batchDF.coalesce(2);
-                            
-                            // Cache data in memory
-                            optimizedDF.persist();
-                            
-                            long totalEventsInBatch = 0;
-                            try {
-                                // Use a safe approach for extracting values
-                                totalEventsInBatch = optimizedDF.agg(functions.sum("event_count")).first().getLong(0);
-                                log.info("Batch {} contains {} events", batchId, totalEventsInBatch);
-                                processedEventsCounter.increment(totalEventsInBatch);
-                            } catch (Exception e) {
-                                log.warn("Could not calculate total events in batch. Will proceed with processing anyway.", e);
-                                processedEventsCounter.increment(); // Increment counter by 1 by default
-                            }
-                            
-                            // Use static method for data processing, avoiding capture of this
-                            try {
-                                // Add retries for resilience
-                                int retries = 0;
-                                boolean success = false;
-                                Exception lastError = null;
-                                
-                                while (!success && retries < 3) {
-                                    try {
-                                        // Call static method instead of instance method
-                                        processBatchStatically(optimizedDF, dbConfig);
-                                        success = true;
-                                    } catch (Exception e) {
-                                        retries++;
-                                        lastError = e;
-                                        log.warn("Error processing batch (attempt {}/3): {}", retries, e.getMessage());
-                                        if (retries < 3) {
-                                            Thread.sleep(1000 * retries); // Exponential backoff
-                                        }
-                                    }
-                                }
-                                
-                                if (!success) {
-                                    failedEventsCounter.increment(totalEventsInBatch > 0 ? totalEventsInBatch : 1);
-                                    log.error("Failed to process batch after 3 attempts", lastError);
-                                }
-                            } catch (InterruptedException e) {
-                                log.warn("Batch processing was interrupted", e);
-                                Thread.currentThread().interrupt(); // Restore interrupt flag
-                            } finally {
-                                // Always release resources in finally block
-                                try {
-                                    optimizedDF.unpersist();
-                                } catch (Exception e) {
-                                    log.warn("Error unpersisting dataframe: {}", e.getMessage());
-                                }
-                                
-                                try {
-                                    sample.stop(batchProcessingTimer);
-                                } catch (Exception e) {
-                                    log.warn("Error stopping timer: {}", e.getMessage());
-                                }
-                            }
-                        } catch (Exception e) {
-                            log.error("Error processing batch: {}", e.getMessage(), e);
-                            failedEventsCounter.increment();
-                        }
-                    })
+                    .trigger(Trigger.ProcessingTime(1, TimeUnit.MINUTES))
                     .start();
                 
-                log.info("Spark Structured Streaming started successfully");
+                log.info("Spark Structured Streaming started successfully.");
                 
             } catch (Exception e) {
-                isRunning.set(false);
-                failedEventsCounter.increment();
                 log.error("Failed to start Spark Structured Streaming", e);
+                isRunning.set(false);
                 throw new TimeoutException("Failed to start Spark Structured Streaming: " + e.getMessage());
             }
         } else {
-            log.info("Spark Structured Streaming already running");
+            log.warn("Stream is already running.");
         }
     }
     
-    /**
-     * Static class for storing database connection parameters.
-     * Must be serializable for transmission to Spark worker nodes.
-     */
-    private static class DatabaseConfig implements Serializable {
-        private static final long serialVersionUID = 1L;
-        
-        private final String url;
-        private final String username;
-        private final String password;
-        
-        public DatabaseConfig(String url, String username, String password) {
-            this.url = url;
-            this.username = username;
-            this.password = password;
+    private void processBatch(Dataset<Row> batchDF, Long batchId) {
+        if (batchDF.isEmpty()) {
+            return;
         }
-        
-        public String getUrl() {
-            return url;
-        }
-        
-        public String getUsername() {
-            return username;
-        }
-        
-        public String getPassword() {
-            return password;
-        }
-    }
-    
-    /**
-     * Static method for processing data partitions.
-     * Does not capture the class instance, so it can be serialized and sent to worker nodes.
-     *
-     * @param batchDF Dataset to process
-     * @param dbConfig Database connection parameters
-     */
-    private static void processBatchStatically(Dataset<Row> batchDF, DatabaseConfig dbConfig) {
-        // Reduce the number of partitions for efficient processing
-        Dataset<Row> cachedDF = batchDF.coalesce(2).cache();
-        
-        // Prepare SQL query for insert/update with proper handling of view dependency
-        final String insertSql =
-            "INSERT INTO aggregated_campaign_stats " +
-            "(campaign_id, event_type, window_start_time, window_end_time, event_count, total_bid_amount, updated_at) " +
-            "VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) " +
-            "ON CONFLICT (campaign_id, event_type, window_start_time) DO UPDATE " +
-            "SET event_count = aggregated_campaign_stats.event_count + EXCLUDED.event_count, " +
-            "total_bid_amount = aggregated_campaign_stats.total_bid_amount + EXCLUDED.total_bid_amount, " +
-            "updated_at = CURRENT_TIMESTAMP";
-        
-        try {
-            // Use foreachPartition for batch processing
-            cachedDF.foreachPartition(partition -> {
-                // Create connection for each partition
-                try (Connection connection = DriverManager.getConnection(
-                        dbConfig.getUrl(), dbConfig.getUsername(), dbConfig.getPassword());
-                     PreparedStatement statement = connection.prepareStatement(insertSql)) {
+        batchDF.persist();
+        log.info("Processing batch ID: {}", batchId);
+
+        String upsertSql = "INSERT INTO aggregated_campaign_stats (campaign_id, event_type, window_start_time, window_end_time, event_count, total_bid_amount, updated_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, NOW()) " +
+                "ON CONFLICT (campaign_id, event_type, window_start_time) DO UPDATE SET " +
+                "event_count = aggregated_campaign_stats.event_count + EXCLUDED.event_count, " +
+                "total_bid_amount = aggregated_campaign_stats.total_bid_amount + EXCLUDED.total_bid_amount, " +
+                "updated_at = NOW()";
+
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(upsertSql)) {
+
+            batchDF.foreachPartition(partition -> {
+                try (Connection partitionConnection = dataSource.getConnection();
+                     PreparedStatement partitionStatement = partitionConnection.prepareStatement(upsertSql)) {
                     
-                    connection.setAutoCommit(false);
-                    int batchSize = 0;
-                    int totalRows = 0;
-                    
-                    while (partition.hasNext()) {
-                        Row row = partition.next();
-                        Row window = row.getAs("window");
-                        statement.setString(1, row.getAs("campaign_id"));
-                        statement.setString(2, row.getAs("event_type"));
-                        statement.setTimestamp(3, window.getAs("start"));
-                        statement.setTimestamp(4, window.getAs("end"));
-                        statement.setLong(5, row.getAs("event_count"));
-                        
-                        // Handle null values for total_bid_amount
-                        Double bidAmount = row.getAs("total_bid_amount");
-                        statement.setBigDecimal(6, bidAmount == null ? 
-                                               java.math.BigDecimal.ZERO : 
-                                               java.math.BigDecimal.valueOf(bidAmount));
-                        
-                        statement.addBatch();
-                        batchSize++;
-                        totalRows++;
-                        
-                        // Execute batch of queries every 100 rows
-                        if (batchSize >= 100) {
-                            try {
-                                statement.executeBatch();
-                                connection.commit();
-                            } catch (SQLException e) {
-                                log.error("Error executing batch: {}", e.getMessage());
-                                connection.rollback();
-                                throw e;
-                            }
-                            statement.clearBatch();
-                            batchSize = 0;
-                        }
-                    }
-                    
-                    // Execute remaining operations in batch
-                    if (batchSize > 0) {
+                    partition.forEachRemaining(row -> {
                         try {
-                            statement.executeBatch();
-                            connection.commit();
-                        } catch (SQLException e) {
-                            log.error("Error executing final batch: {}", e.getMessage());
-                            connection.rollback();
-                            throw e;
+                            Row window = row.getStruct(0);
+                            Timestamp windowStart = window.getTimestamp(0);
+                            Timestamp windowEnd = window.getTimestamp(1);
+
+                            partitionStatement.setString(1, row.getString(1));
+                            partitionStatement.setString(2, row.getString(2));
+                            partitionStatement.setTimestamp(3, windowStart);
+                            partitionStatement.setTimestamp(4, windowEnd);
+                            partitionStatement.setLong(5, row.getLong(3));
+                            partitionStatement.setBigDecimal(6, row.getDecimal(4));
+                            partitionStatement.addBatch();
+                        } catch (Exception e) {
+                            log.error("Error processing row: {}", row.toString(), e);
                         }
-                    }
-                    
-                    log.debug("Processed {} rows in partition", totalRows);
+                    });
+                    partitionStatement.executeBatch();
                 } catch (SQLException e) {
-                    log.error("Failed to write partition to database: {}", e.getMessage(), e);
-                    throw new RuntimeException("Database error while processing partition", e);
+                    log.error("Error processing partition", e);
+                    throw new RuntimeException(e);
                 }
             });
-            
+
+        } catch (Exception e) {
+            log.error("Error processing batch {}", batchId, e);
         } finally {
-            // Release cache resources
-            try {
-                cachedDF.unpersist();
-            } catch (Exception e) {
-                log.warn("Error unpersisting cached dataframe: {}", e.getMessage());
-            }
+            batchDF.unpersist();
         }
     }
     
@@ -503,40 +327,19 @@ public class AdEventSparkStreamer {
         }
     }
     
-    /**
-     * Processes a batch of data using a connection pool to improve performance.
-     * @deprecated Use the static method processBatchStatically instead of this method
-     * @param batchDF Dataset to process
-     */
-    @Deprecated
-    private void processBatchWithConnectionPool(Dataset<Row> batchDF) {
-        // Method retained for backward compatibility, but should not be used
-        throw new UnsupportedOperationException("This method is deprecated. Use processBatchStatically instead.");
-    }
-    
     @PreDestroy
     public void stopStream() {
         shutdownLock.lock();
         try {
             if (isRunning.compareAndSet(true, false)) {
-                log.info("Stopping Spark Structured Streaming");
+                log.info("Attempting to stop Spark Structured Streaming query...");
                 if (streamingQuery != null && streamingQuery.isActive()) {
                     try {
                         streamingQuery.stop();
-                        log.info("Streaming query stopped successfully");
+                        log.info("Spark Structured Streaming query stopped successfully.");
                     } catch (Exception e) {
-                        log.error("Error stopping streaming query", e);
+                        log.error("Error while stopping Spark streaming query", e);
                     }
-                }
-                
-                // Close connection pool
-                try {
-                    if (dataSource != null) {
-                        dataSource.close();
-                        log.info("Connection pool closed successfully");
-                    }
-                } catch (SQLException e) {
-                    log.error("Error closing connection pool", e);
                 }
                 
                 // Stop thread pool

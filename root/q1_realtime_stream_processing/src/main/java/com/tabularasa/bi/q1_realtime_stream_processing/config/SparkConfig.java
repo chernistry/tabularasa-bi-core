@@ -10,6 +10,18 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Profile;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.DisposableBean;
+import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
+import org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration;
+import org.springframework.boot.autoconfigure.transaction.jta.JtaAutoConfiguration;
+import org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.boot.web.servlet.server.ServletWebServerFactory;
+import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -17,6 +29,29 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.concurrent.TimeUnit;
+
+/**
+ * Separate Spring Boot application class for the Spark profile
+ * This prevents JPA-related auto-configuration from loading
+ */
+@SpringBootApplication
+@EnableScheduling
+@EnableAsync
+@ConfigurationPropertiesScan
+@Profile("spark")
+@EnableAutoConfiguration
+class SparkApplication {
+    // This class just serves as a container for Spring Boot configuration
+    // The actual implementation is still in Q1RealtimeStreamProcessingApplication
+    
+    /**
+     * Explicitly provide a ServletWebServerFactory bean for Tomcat
+     */
+    @Bean
+    public ServletWebServerFactory servletWebServerFactory() {
+        return new TomcatServletWebServerFactory();
+    }
+}
 
 @Configuration
 @Profile("spark")
@@ -62,114 +97,62 @@ public class SparkConfig implements DisposableBean {
         log.info("Creating SparkSession with app name: {}, master: {}, driverMemory: {}, executorMemory: {}", 
                 appName, actualMaster, driverMemory, executorMemory);
         
-        // Clean up the checkpoint directory before starting
-        try {
-            cleanupCheckpointDirectory();
-        } catch (Exception e) {
-            log.warn("Failed to cleanup checkpoint directory: {}", e.getMessage());
-            try {
-                // Create fallback checkpoint directory with timestamp
-                String fallbackPath = "/tmp/spark_checkpoints_" + System.currentTimeMillis();
-                Files.createDirectories(Paths.get(fallbackPath));
-                checkpointLocation = fallbackPath;
-                log.info("Created fallback checkpoint directory: {}", fallbackPath);
-            } catch (Exception ex) {
-                log.error("Failed to create fallback checkpoint directory", ex);
-            }
-        }
-        
         SparkConf conf = new SparkConf()
             .setAppName(appName)
             .setMaster(actualMaster)
-            // Main serialization parameters
+            // Use Kryo serializer for better performance
             .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
             .set("spark.kryo.registrator", kryoRegistrator)
-            .set("spark.kryo.registrationRequired", "true")
-            .set("spark.kryo.unsafe", "false")
             
-            // Solution for Scala collections serialization issue
             .set("spark.sql.warehouse.dir", "/tmp/spark-warehouse")
-            .set("spark.sql.legacy.setCommandRejectsSparkCoreConfs", "false")
             .set("spark.sql.legacy.timeParserPolicy", "LEGACY")
             .set("spark.sql.shuffle.partitions", String.valueOf(shufflePartitions))
-            
-            // Adding configuration for serialization compatibility
-            .set("spark.serializer.objectStreamReset", "100")
-            .set("spark.kryoserializer.buffer.max", "1024m")
-            .set("spark.kryoserializer.buffer", "64m")
-            
-            // Resource settings - reduce for local mode
+
+            // Enable Adaptive Query Execution (AQE)
+            .set("spark.sql.adaptive.enabled", "true")
+            .set("spark.sql.adaptive.coalescePartitions.enabled", "true")
+            .set("spark.sql.adaptive.skewJoin.enabled", "true")
+            .set("spark.sql.adaptive.localShuffleReader.enabled", "true")
+
+            // Resource settings
             .set("spark.driver.memory", driverMemory)
             .set("spark.executor.memory", executorMemory)
             .set("spark.executor.cores", String.valueOf(executorCores))
-            
-            // Parallelism settings - reduce for stability
-            .set("spark.default.parallelism", String.valueOf(defaultParallelism))
-            
+
             // Scheduler settings
             .set("spark.scheduler.mode", "FAIR")
             
-            // Checkpoint
-            .set("spark.streaming.unpersist", "true")
-            .set("spark.streaming.kafka.maxRatePerPartition", "100")
+            // Backpressure for streaming
             .set("spark.streaming.backpressure.enabled", "true")
             
-            // Network optimization - increase timeouts
+            // Network optimization
             .set("spark.network.timeout", "600s")
-            .set("spark.executor.heartbeatInterval", "60s")
             
             // Memory optimization
             .set("spark.memory.fraction", "0.6")
-            .set("spark.memory.storageFraction", "0.2")
+            .set("spark.memory.storageFraction", "0.5")
             
-            // Disable dynamic allocation for local mode
+            // Disable dynamic allocation for local/standalone mode for stability
             .set("spark.dynamicAllocation.enabled", "false")
             
             // Disable UI to resolve servlet API conflict issues
             .set("spark.ui.enabled", "false")
-            .set("spark.ui.showConsoleProgress", "true")
             
-            // Set proper handling for graceful shutdown
             .set("spark.streaming.stopGracefullyOnShutdown", "true")
-            .set("spark.cleaner.periodicGC.interval", "1min")
-            
-            // Improve error management for seamless shutdown
-            .set("spark.task.maxFailures", "3")
-            .set("spark.rpc.message.maxSize", "128")
-            .set("spark.rpc.io.connectionTimeout", "120s")
-            .set("spark.rpc.lookupTimeout", "120s")
-            .set("spark.rpc.numRetries", "5")
-            .set("spark.rpc.retry.wait", "5s")
-            
-            // Solution for Java serialization issue in Spark
-            .set("spark.driver.extraJavaOptions", 
-                 "-Djava.io.tmpdir=/tmp " +
-                 "-Dlog4j.configuration=log4j2.properties " +
-                 "-Dhadoop.security.authentication=simple " +
-                 "-Djavax.security.auth.useSubjectCredsOnly=false " +
-                 "-Djava.security.krb5.conf=/dev/null " +
-                 "--add-opens=java.base/java.nio=ALL-UNNAMED " +
-                 "--add-opens=java.base/java.lang=ALL-UNNAMED " +
-                 "--add-opens=java.base/java.util=ALL-UNNAMED " +
-                 "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED")
-            
-            // Set logging level through configuration instead of direct call
-            .set("spark.log.level", "INFO");
 
-        // Create SparkSession with proper error handling
+            // Fix class loading issues
+            .set("spark.driver.userClassPathFirst", "true")
+            .set("spark.executor.userClassPathFirst", "true")
+            
+            // Set logging level through configuration
+            .set("spark.log.level", "WARN");
+
+        // Create SparkSession
         try {
-            // Creating SparkSession with explicit Scala version specification
             this.sparkSession = SparkSession.builder()
                 .config(conf)
                 .getOrCreate();
                 
-            // Set checkpoint location
-            sparkSession.sparkContext().setCheckpointDir(checkpointLocation);
-            
-            // Register classes for Kryo serialization through configuration
-            sparkSession.sparkContext().conf().set("spark.serializer", "org.apache.spark.serializer.KryoSerializer");
-            sparkSession.sparkContext().conf().set("spark.kryo.registrator", kryoRegistrator);
-            
             return sparkSession;
         } catch (Exception e) {
             log.error("Failed to create SparkSession", e);
@@ -190,50 +173,16 @@ public class SparkConfig implements DisposableBean {
         }
     }
     
-    private void cleanupCheckpointDirectory() throws Exception {
-        Path checkpointPath = Paths.get(checkpointLocation);
-        if (Files.exists(checkpointPath)) {
-            log.info("Cleaning up checkpoint directory: {}", checkpointPath);
-            Files.walk(checkpointPath)
-                 .sorted(Comparator.reverseOrder())
-                 .map(Path::toFile)
-                 .forEach(file -> {
-                     if (!file.delete()) {
-                         log.warn("Failed to delete file: {}", file.getAbsolutePath());
-                     }
-                 });
-        }
-        
-        Files.createDirectories(checkpointPath);
-        log.info("Checkpoint directory recreated: {}", checkpointPath);
-    }
-    
     @Override
-    public void destroy() throws Exception {
+    public void destroy() {
         log.info("Shutting down Spark resources");
-        if (javaSparkContext != null && !javaSparkContext.sc().isStopped()) {
-            try {
-                log.info("Stopping JavaSparkContext");
-                javaSparkContext.close();
-            } catch (Exception e) {
-                log.warn("Error stopping JavaSparkContext: {}", e.getMessage());
-            }
-        }
-        
         if (sparkSession != null && !sparkSession.sparkContext().isStopped()) {
             try {
-                log.info("Stopping SparkSession");
                 sparkSession.stop();
+                sparkSession = null;
             } catch (Exception e) {
-                log.warn("Error stopping SparkSession: {}", e.getMessage());
+                log.error("Error stopping SparkSession", e);
             }
-        }
-        
-        // Wait a bit to ensure resources are released
-        try {
-            TimeUnit.SECONDS.sleep(1);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         }
     }
 }

@@ -17,6 +17,7 @@ import java.util.HashMap;
 /**
  * Custom Kryo registrator for Spark serialization.
  * Registers all classes that need to be serialized by Kryo.
+ * Note: This class is only used when Kryo serialization is enabled.
  */
 public class KryoRegistrator implements org.apache.spark.serializer.KryoRegistrator {
     @Override
@@ -46,21 +47,42 @@ public class KryoRegistrator implements org.apache.spark.serializer.KryoRegistra
         kryo.register(char[].class);
         kryo.register(long[].class);
         
-        // Register Scala collections
+        // Register Scala collections with ordered registration for proxies first
         try {
-            kryo.register(Class.forName("scala.collection.immutable.List"));
+            // Important: register these proxies BEFORE registering their parent classes
             kryo.register(Class.forName("scala.collection.immutable.List$SerializationProxy"));
+            kryo.register(Class.forName("scala.collection.immutable.Vector$SerializationProxy"));
+            kryo.register(Class.forName("scala.collection.immutable.Set$SerializationProxy"));
+            kryo.register(Class.forName("scala.collection.immutable.Map$SerializationProxy"));
+            
+            // Now register the actual collections
+            kryo.register(Class.forName("scala.collection.immutable.List"));
             kryo.register(Class.forName("scala.collection.immutable.Vector"));
-            kryo.register(Class.forName("scala.collection.immutable.Vector$"));
-            kryo.register(Class.forName("scala.collection.immutable.$colon$colon"));
+            kryo.register(Class.forName("scala.collection.immutable.Set"));
+            kryo.register(Class.forName("scala.collection.immutable.Map"));
+            
+            // Additional Scala collections needed for Spark
             kryo.register(Class.forName("scala.collection.immutable.Nil$"));
+            kryo.register(Class.forName("scala.collection.immutable.$colon$colon"));
+            kryo.register(Class.forName("scala.collection.immutable.Map$EmptyMap$"));
+            kryo.register(Class.forName("scala.collection.immutable.Map$Map1"));
+            kryo.register(Class.forName("scala.collection.immutable.Map$Map2"));
+            kryo.register(Class.forName("scala.collection.immutable.Map$Map3"));
+            kryo.register(Class.forName("scala.collection.immutable.Map$Map4"));
+            kryo.register(Class.forName("scala.collection.immutable.Set$EmptySet$"));
+            kryo.register(Class.forName("scala.collection.immutable.Set$Set1"));
+            kryo.register(Class.forName("scala.collection.immutable.Set$Set2"));
+            
+            // Mutable collections
             kryo.register(Class.forName("scala.collection.mutable.ArrayBuffer"));
             kryo.register(Class.forName("scala.collection.mutable.HashMap"));
             kryo.register(Class.forName("scala.collection.mutable.ListBuffer"));
+            
+            // Seq and collection interfaces
             kryo.register(Class.forName("scala.collection.Seq"));
             kryo.register(Class.forName("scala.collection.immutable.Seq"));
+            kryo.register(Class.forName("scala.collection.mutable.Seq"));
             kryo.register(Class.forName("scala.collection.generic.GenericCompanion"));
-            kryo.register(Class.forName("scala.collection.immutable.Map$EmptyMap$"));
         } catch (ClassNotFoundException e) {
             // Log the error but continue working
             System.err.println("Warning: Could not register some Scala collections: " + e.getMessage());
@@ -68,8 +90,14 @@ public class KryoRegistrator implements org.apache.spark.serializer.KryoRegistra
         
         // Register Spark SQL classes
         try {
+            // Low-level Spark SQL classes
             kryo.register(Class.forName("org.apache.spark.sql.execution.datasources.v2.DataSourceRDDPartition"));
             kryo.register(Class.forName("org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema"));
+            kryo.register(Class.forName("org.apache.spark.sql.catalyst.InternalRow"));
+            kryo.register(Class.forName("org.apache.spark.sql.catalyst.expressions.UnsafeRow"));
+            kryo.register(Class.forName("org.apache.spark.sql.execution.streaming.StreamExecution"));
+            
+            // Schema-related classes
             kryo.register(Class.forName("org.apache.spark.sql.types.StructType"));
             kryo.register(Class.forName("org.apache.spark.sql.types.StructField"));
             kryo.register(Class.forName("org.apache.spark.sql.types.Metadata"));
@@ -78,25 +106,36 @@ public class KryoRegistrator implements org.apache.spark.serializer.KryoRegistra
             kryo.register(Class.forName("org.apache.spark.sql.types.LongType$"));
             kryo.register(Class.forName("org.apache.spark.sql.types.DoubleType$"));
             kryo.register(Class.forName("org.apache.spark.sql.types.TimestampType$"));
+            
+            // Spark's Kafka connector classes
+            kryo.register(Class.forName("org.apache.spark.sql.kafka010.KafkaSourceRDD"));
+            kryo.register(Class.forName("org.apache.spark.sql.kafka010.KafkaSourceRDDPartition"));
+            
+            // Window and other streaming-specific classes
+            kryo.register(Class.forName("org.apache.spark.sql.catalyst.expressions.WindowSpecDefinition"));
+            kryo.register(Class.forName("org.apache.spark.sql.execution.streaming.WindowOutputMode"));
+            kryo.register(Class.forName("org.apache.spark.sql.execution.streaming.StateStore$"));
+            kryo.register(Class.forName("org.apache.spark.sql.execution.streaming.GroupStateImpl"));
+            kryo.register(Class.forName("org.apache.spark.sql.execution.streaming.state.StateStoreProviderId"));
         } catch (ClassNotFoundException e) {
             System.err.println("Warning: Could not register some Spark SQL classes: " + e.getMessage());
         }
         
-        // Register a specialized serializer for ByteBuffer
+        // Register specialized serializers
         kryo.register(ByteBuffer.class, new ByteBufferSerializer());
+        kryo.register(BigDecimal.class, new BigDecimalSerializer());
+        kryo.register(LocalDateTime.class, new LocalDateTimeSerializer());
         
         // Register specific implementations of ByteBuffer
-        Class<? extends ByteBuffer> heapByteBufferClass = ByteBuffer.allocate(0).getClass();
-        kryo.register(heapByteBufferClass, new ByteBufferSerializer());
-        
-        Class<? extends ByteBuffer> directByteBufferClass = ByteBuffer.allocateDirect(0).getClass();
-        kryo.register(directByteBufferClass, new ByteBufferSerializer());
-        
-        // Register BigDecimal serializer for better performance
-        kryo.register(BigDecimal.class, new BigDecimalSerializer());
-        
-        // Register LocalDateTime serializer
-        kryo.register(LocalDateTime.class, new LocalDateTimeSerializer());
+        try {
+            Class<? extends ByteBuffer> heapByteBufferClass = ByteBuffer.allocate(0).getClass();
+            kryo.register(heapByteBufferClass, new ByteBufferSerializer());
+            
+            Class<? extends ByteBuffer> directByteBufferClass = ByteBuffer.allocateDirect(0).getClass();
+            kryo.register(directByteBufferClass, new ByteBufferSerializer());
+        } catch (Exception e) {
+            System.err.println("Warning: Could not register ByteBuffer implementations: " + e.getMessage());
+        }
     }
     
     /**
