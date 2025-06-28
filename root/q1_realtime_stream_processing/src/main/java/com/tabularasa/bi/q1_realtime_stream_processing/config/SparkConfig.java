@@ -51,6 +51,13 @@ class SparkApplication {
     public ServletWebServerFactory servletWebServerFactory() {
         return new TomcatServletWebServerFactory();
     }
+    
+    static {
+        // Disable Kerberos authentication to fix NullPointerException
+        System.setProperty("java.security.krb5.conf", "/dev/null");
+        System.setProperty("hadoop.security.authentication", "simple");
+        System.setProperty("javax.security.auth.useSubjectCredsOnly", "false");
+    }
 }
 
 @Configuration
@@ -87,6 +94,13 @@ public class SparkConfig implements DisposableBean {
     
     private SparkSession sparkSession;
     private JavaSparkContext javaSparkContext;
+    
+    static {
+        // Disable Kerberos authentication to fix NullPointerException
+        System.setProperty("java.security.krb5.conf", "/dev/null");
+        System.setProperty("hadoop.security.authentication", "simple");
+        System.setProperty("javax.security.auth.useSubjectCredsOnly", "false");
+    }
 
     @Bean
     @Primary
@@ -122,13 +136,27 @@ public class SparkConfig implements DisposableBean {
                  "-Dscala.collection.immutable.Vector.throwExceptionOnDetach=false " +
                  "-Dscala.collection.Seq.throwExceptionOnDetach=false " +
                  "-Djdk.serialFilter.allowList=scala.**,org.apache.spark.** " +
-                 "-Dsun.io.serialization.extendedDebugInfo=true")
+                 "-Dsun.io.serialization.extendedDebugInfo=true " +
+                 "-Dhadoop.security.authentication=simple " +
+                 "-Djavax.security.auth.useSubjectCredsOnly=false " +
+                 "-Djava.security.krb5.conf=/dev/null " +
+                 "--add-opens=java.base/java.nio=ALL-UNNAMED")
             .set("spark.driver.extraJavaOptions", 
                  "-Dscala.collection.immutable.List.throwExceptionOnDetach=false " +
                  "-Dscala.collection.immutable.Vector.throwExceptionOnDetach=false " +
                  "-Dscala.collection.Seq.throwExceptionOnDetach=false " +
                  "-Djdk.serialFilter.allowList=scala.**,org.apache.spark.** " +
-                 "-Dsun.io.serialization.extendedDebugInfo=true")
+                 "-Dsun.io.serialization.extendedDebugInfo=true " +
+                 "-Dhadoop.security.authentication=simple " +
+                 "-Djavax.security.auth.useSubjectCredsOnly=false " +
+                 "-Djava.security.krb5.conf=/dev/null " +
+                 "--add-opens=java.base/java.nio=ALL-UNNAMED")
+            
+            // Security settings to fix Kerberos authentication issues
+            .set("spark.hadoop.hadoop.security.authentication", "simple")
+            .set("spark.hadoop.fs.defaultFS", "file:///")
+            .set("spark.kerberos.keytab", "none")
+            .set("spark.kerberos.principal", "none")
             
             .set("spark.sql.warehouse.dir", "/tmp/spark-warehouse")
             .set("spark.sql.legacy.timeParserPolicy", "LEGACY")

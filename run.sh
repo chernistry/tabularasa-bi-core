@@ -222,6 +222,9 @@ function run_prod() {
        -Djava.security.krb5.conf=/dev/null \
        -Djava.security.manager=allow \
        -DHADOOP_USER_NAME="$hadoop_user" \
+       -Dspark.hadoop.fs.defaultFS=file:/// \
+       -Dspark.kerberos.keytab=none \
+       -Dspark.kerberos.principal=none \
        -jar "$Q1_DIR/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT-exec.jar" &
 
       APP_PID=$!
@@ -303,12 +306,14 @@ function run_test() {
 
   # Submit Spark job
   echo "🔥 [SPARK] Submitting Spark job to master..."
+  
+  # Copy spark_submit.sh to Spark container
+  docker cp "$DOCKER_DIR/spark_submit.sh" spark-master:/opt/spark_submit.sh
+  docker exec -u root spark-master chmod +x /opt/spark_submit.sh
+  
   (
-    docker exec -e HADOOP_USER_NAME=root spark-master /opt/bitnami/spark/bin/spark-submit \
-      --class com.tabularasa.bi.q1_realtime_stream_processing.spark.AdEventSparkStreamer \
-      --master spark://spark-master:7077 \
-      --deploy-mode client \
-      --packages org.postgresql:postgresql:42.7.3 \
+    # Use our custom script to submit the Spark job
+    docker exec -e HADOOP_USER_NAME=root spark-master /opt/spark_submit.sh \
       /opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar \
       "kafka:9092" "ad-events" "jdbc:postgresql://postgres:5432/tabularasadb" "tabulauser" "tabulapass"
   ) &

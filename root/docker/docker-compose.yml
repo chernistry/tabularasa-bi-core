@@ -101,73 +101,71 @@ services:
   # ================== SPARK CLUSTER ==================
   # --► Spark master and worker for distributed processing
   spark-master:
-    image: bitnami/spark:3.5.1
+    image: docker.io/bitnami/spark:3.5
     container_name: spark-master
-    ports:
-      - "8081:8080"
-      - "7077:7077"
-    user: "1001:0"
     environment:
       - SPARK_MODE=master
-      # TODO: Enable security features for production
       - SPARK_RPC_AUTHENTICATION_ENABLED=no
-      - HADOOP_USER_NAME=spark
-      - HOME=/tmp
-      - USER_HOME=/tmp
       - SPARK_RPC_ENCRYPTION_ENABLED=no
       - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
       - SPARK_SSL_ENABLED=no
-      # Adaptive Query Execution (AQE) settings
-      - SPARK_CONF_spark_sql_adaptive_enabled=true
-      - SPARK_CONF_spark_sql_adaptive_coalescePartitions_enabled=true
-      - SPARK_CONF_spark_sql_adaptive_fetchShuffleBlocksInBatch=true
-      - SPARK_CONF_spark_sql_adaptive_skewJoin_enabled=true
-      - SPARK_CONF_spark_sql_shuffle_partitions=200
+      - HADOOP_USER_NAME=spark
+      - HADOOP_HOME=/opt/hadoop
+      - HADOOP_CONF_DIR=/opt/hadoop/conf
+      - JAVA_HOME=/opt/bitnami/java
+      - SPARK_DAEMON_MEMORY=1g
+      - SPARK_DAEMON_JAVA_OPTS="-Dhadoop.security.authentication=simple -Djavax.security.auth.useSubjectCredsOnly=false -Djava.security.krb5.conf=/dev/null"
+    ports:
+      - "8080:8080"
+      - "7077:7077"
     volumes:
-      - ./spark_apps:/opt/spark_apps
-      - ./spark_data:/opt/spark_data
-      - ../q1_realtime_stream_processing/src/main/resources/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf:ro
+      - spark_jars:/opt/bitnami/spark/jars
+      - ../q1_realtime_stream_processing/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar:/opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar
+      - ./spark/log4j2.xml:/opt/bitnami/spark/conf/log4j2.xml
+      - ./spark/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/ || exit 1"]
+      test: ["CMD-SHELL", "curl -s -f http://localhost:8080/ || exit 1"]
       interval: 15s
-      timeout: 5s
+      timeout: 10s
       retries: 5
+      start_period: 60s
     restart: unless-stopped
     networks:
       - docker_bi_network
 
   spark-worker:
-    image: bitnami/spark:3.5.1
+    image: docker.io/bitnami/spark:3.5
     container_name: spark-worker
-    depends_on:
-      spark-master:
-        condition: service_healthy
-    ports:
-      - "8082:8080"
-    user: "1001:0"
     environment:
       - SPARK_MODE=worker
       - SPARK_MASTER_URL=spark://spark-master:7077
       - SPARK_WORKER_MEMORY=1G
       - SPARK_WORKER_CORES=1
-      - HOME=/tmp
-      - USER_HOME=/tmp
-      - HADOOP_USER_NAME=spark
-      # TODO: Enable security features for production
       - SPARK_RPC_AUTHENTICATION_ENABLED=no
       - SPARK_RPC_ENCRYPTION_ENABLED=no
       - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
       - SPARK_SSL_ENABLED=no
+      - HADOOP_USER_NAME=spark
+      - HADOOP_HOME=/opt/hadoop
+      - HADOOP_CONF_DIR=/opt/hadoop/conf
+      - JAVA_HOME=/opt/bitnami/java
+      - SPARK_DAEMON_MEMORY=1g
+      - SPARK_DAEMON_JAVA_OPTS="-Dhadoop.security.authentication=simple -Djavax.security.auth.useSubjectCredsOnly=false -Djava.security.krb5.conf=/dev/null"
     volumes:
-      - ./spark_apps:/opt/spark_apps
-      - ./spark_data:/opt/spark_data
-      - ../q1_realtime_stream_processing/src/main/resources/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf:ro
+      - spark_jars:/opt/bitnami/spark/jars
+      - ../q1_realtime_stream_processing/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar:/opt/spark_apps/q1_realtime_stream_processing-0.0.1-SNAPSHOT.jar
+      - ./spark/log4j2.xml:/opt/bitnami/spark/conf/log4j2.xml
+      - ./spark/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/ || exit 1"]
+      test: ["CMD-SHELL", "curl -s -f http://localhost:8081/ || exit 1"]
       interval: 15s
-      timeout: 5s
+      timeout: 10s
       retries: 5
+      start_period: 60s
     restart: unless-stopped
+    depends_on:
+      spark-master:
+        condition: service_started
     networks:
       - docker_bi_network
 

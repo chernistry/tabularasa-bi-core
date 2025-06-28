@@ -1,34 +1,52 @@
-# General VCS
+# Git
 .git
+.gitignore
+.github
 
-# Maven / Gradle build directories
-target/
-
-# Compiled class files
-*.class
-
-# Logs
-*.log
-logs/
-
-# IDE directories and files
+# IDE files
 .idea/
-.vscode/
 *.iml
-
-# Node
-node_modules/
-
-# Python virtual environments and caches
-venv/
-__pycache__/
-*.py[cod]
-
-# OS generated files
+.vscode/
+*.swp
+*.swo
 .DS_Store
 
-# Docker compose files are not required in build context
-**/docker-compose*.yml
+# Build files
+**/target/
+**/build/
+**/node_modules/
+**/dist/
+**/.gradle/
+**/.mvn/
 
-# Test containers and artifacts
-debug/ 
+# Logs
+**/logs/
+**/*.log
+
+# Local environment files
+.env
+.env.*
+**/*.env
+
+# Docker
+**/Dockerfile*
+docker-compose*
+.dockerignore
+
+# Documentation
+README.md
+CHANGELOG.md
+docs/
+
+# Test files
+**/test/
+**/tests/
+**/src/test/
+
+# Temporary files
+**/tmp/
+**/temp/
+
+# Specific to this project
+root/docker/spark_data/
+root/docker/grafana_data/ 

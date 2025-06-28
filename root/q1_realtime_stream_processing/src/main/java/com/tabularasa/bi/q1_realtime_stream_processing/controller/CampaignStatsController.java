@@ -4,9 +4,9 @@ import com.tabularasa.bi.q1_realtime_stream_processing.dto.CampaignStatsDto;
 import com.tabularasa.bi.q1_realtime_stream_processing.service.CampaignStatsService;
 import java.time.LocalDateTime;
 import java.util.List;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.format.annotation.DateTimeFormat;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -16,14 +16,14 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * REST controller for retrieving campaign statistics.
+ * This controller only handles HTTP requests and delegates business logic to the service layer.
  */
 @RestController
 @RequestMapping("/api/v1/campaign-stats")
 public final class CampaignStatsController {
 
-    /**
-     * Service for campaign statistics.
-     */
+    private static final Logger log = LoggerFactory.getLogger(CampaignStatsController.class);
+    
     private final CampaignStatsService campaignStatsService;
 
     /**
@@ -31,7 +31,6 @@ public final class CampaignStatsController {
      *
      * @param campaignStatsService The campaign statistics service.
      */
-    @Autowired
     public CampaignStatsController(final CampaignStatsService campaignStatsService) {
         this.campaignStatsService = campaignStatsService;
     }
@@ -52,20 +51,26 @@ public final class CampaignStatsController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
             final LocalDateTime endTime) {
 
+        log.debug("Fetching stats for campaign {} from {} to {}", campaignId, startTime, endTime);
+        
         if (startTime.isAfter(endTime)) {
+            log.warn("Invalid time range request: start time {} is after end time {}", startTime, endTime);
             return ResponseEntity.badRequest().build();
         }
 
         try {
-            final List<CampaignStatsDto> stats =
-                    campaignStatsService.getCampaignStats(campaignId, startTime, endTime);
+            final List<CampaignStatsDto> stats = campaignStatsService.getCampaignStats(campaignId, startTime, endTime);
+            
             if (stats.isEmpty()) {
+                log.info("No stats found for campaign {} in time range {} to {}", campaignId, startTime, endTime);
                 return ResponseEntity.notFound().build();
             }
+            
+            log.debug("Retrieved {} stat entries for campaign {}", stats.size(), campaignId);
             return ResponseEntity.ok(stats);
         } catch (Exception e) {
-            // In a real app, you'd want more specific exception handling and logging
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            log.error("Error retrieving campaign stats for campaign {}: {}", campaignId, e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
         }
     }
 }
