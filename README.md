@@ -1,5 +1,5 @@
-# TabulaRasa BI Core **rev. 0.3**
-*Real-time AdTech Analytics Platform - Technical Assessment Showcase*  
+# TabulaRasa BI Core **v0.3**
+*Enterprise AdTech Analytics Platform - Technical Excellence Showcase*  
 
 <p align="center">
   <img alt="Java" src="https://img.shields.io/badge/Java-17-blue?logo=openjdk"/>
@@ -8,23 +8,23 @@
   <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-14-blue?logo=postgresql"/>
   <img alt="Kafka" src="https://img.shields.io/badge/Kafka-3.7-black?logo=apache-kafka"/>
   <img alt="Docker" src="https://img.shields.io/badge/Docker-24-blue?logo=docker"/>
-  <img alt="Status" src="https://img.shields.io/badge/Status-🚀%20Production%20Ready-success"/>
+  <img alt="Status" src="https://img.shields.io/badge/Status-Production%20Ready-success"/>
   <img alt="Coverage" src="https://img.shields.io/badge/Test%20Coverage-85%25+-green"/>
 </p>
 
-> **TabulaRasa BI Core** is a production-grade, low-latency data engineering platform demonstrating modern AdTech analytics patterns. Built as a comprehensive technical assessment, it showcases real-time streaming, advanced SQL analytics, performance optimization, and scalable API design—all integrated into a unified, observable system.
+> **TabulaRasa BI Core** is an enterprise-grade, low-latency data engineering platform demonstrating modern AdTech analytics patterns. Built as a comprehensive technical assessment, it showcases real-time streaming, advanced SQL analytics, performance optimization, and scalable API design—all integrated into a unified, observable system.
 
 ---
 
-## 🎯 Project Overview & Value Proposition
+## Project Overview & Value Proposition
 
-This repository serves multiple stakeholder needs:
+This repository serves multiple stakeholder needs across the organization:
 
-* **👩‍💼 Executives** — Real-time business KPIs updating within 5 seconds of event occurrence
-* **👨‍💻 Data Engineers** — Production-ready Spark Structured Streaming with exactly-once semantics
-* **🏗️ Backend Engineers** — Instrumented Spring Boot APIs with comprehensive observability
-* **🚀 DevOps/SRE** — Complete containerized stack with monitoring and alerting
-* **📋 Technical Interviewers** — Structured assessment of engineering practices across 4 core domains
+* **Business Leadership** — Real-time business KPIs with sub-5-second latency
+* **Data Engineering Teams** — Production-ready Spark Structured Streaming with exactly-once semantics
+* **Backend Engineering Teams** — Instrumented Spring Boot APIs with comprehensive observability
+* **DevOps/SRE Teams** — Complete containerized stack with monitoring and alerting
+* **Technical Assessment** — Structured evaluation of engineering practices across 4 core domains
 
 ### Technical Assessment Structure
 
@@ -39,7 +39,7 @@ The project addresses four key data engineering challenges:
 
 ---
 
-## 🏗️ System Architecture
+## System Architecture
 
 ### High-Level Data Flow
 ```
@@ -80,17 +80,17 @@ flowchart LR
 
 ### Key Technical Features
 
-- **🔄 Exactly-Once Processing**: Spark Structured Streaming with idempotent upserts
-- **⏱️ Low-Latency Windowing**: 1-minute tumbling windows with 10-second watermarks
-- **📊 Real-time Aggregation**: Campaign performance metrics with sub-5-second latency
-- **🔍 Advanced Analytics**: Complex SQL with CTEs, window functions, and ranking
-- **📈 Multi-Dimensional Dashboards**: 4 specialized analytics views (Campaign, Publisher, Executive, Pipeline Health)
-- **🛡️ Production Observability**: Prometheus metrics, Grafana dashboards, health endpoints
-- **🐳 Container-Native**: Full Docker Compose stack with dev and production profiles
+- **Exactly-Once Processing**: Spark Structured Streaming with idempotent upserts
+- **Low-Latency Windowing**: 1-minute tumbling windows with 10-second watermarks
+- **Real-time Aggregation**: Campaign performance metrics with sub-5-second latency
+- **Advanced Analytics**: Complex SQL with CTEs, window functions, and ranking
+- **Multi-Dimensional Dashboards**: 4 specialized analytics views (Campaign, Publisher, Executive, Pipeline Health)
+- **Production Observability**: Prometheus metrics, Grafana dashboards, health endpoints
+- **Container-Native**: Full Docker Compose stack with dev and production profiles
 
 ---
 
-## ⚡ Quick Start
+## Quick Start
 
 ### Prerequisites
 - **Java 17+** (OpenJDK recommended)
@@ -119,7 +119,7 @@ docker compose -f root/docker/docker-compose.yml up -d tabularasa_postgres_db ka
 ./run.sh prod simple
 ```
 
-### Access Points
+### Service Access Points
 | Service | URL | Description |
 |---------|-----|-------------|
 | **Analytics Dashboards** | http://localhost:8080 | Flask-based real-time analytics |
@@ -129,14 +129,14 @@ docker compose -f root/docker/docker-compose.yml up -d tabularasa_postgres_db ka
 | **Prometheus** | http://localhost:9090 | Raw metrics endpoint |
 | **Spark UI** | http://localhost:4040 | Job monitoring (when active) |
 
-### Stop Everything
+### Stop Services
 ```bash
 ./run.sh down  # Stops all services and cleans up volumes
 ```
 
 ---
 
-## 🛠️ Technology Stack Deep Dive
+## Technology Stack
 
 | Layer | Technology | Version | Configuration |
 |-------|------------|---------|---------------|
@@ -152,7 +152,7 @@ docker compose -f root/docker/docker-compose.yml up -d tabularasa_postgres_db ka
 
 ---
 
-## 📊 Dashboard Analytics Suite
+## Analytics Dashboard Suite
 
 The platform includes four specialized analytics dashboards:
 
@@ -184,7 +184,7 @@ Each dashboard supports:
 
 ---
 
-## 🧪 Testing & Quality Assurance
+## Testing & Quality Assurance
 
 ### Test Coverage Strategy
 ```bash
@@ -206,15 +206,15 @@ mvn test jacoco:report
 - **Performance Tests**: Load testing with configurable event volumes
 
 ### Quality Gates
-- ✅ All tests must pass before deployment
-- ✅ Code coverage minimum 85%
-- ✅ No critical SonarQube violations
-- ✅ Docker health checks must succeed
-- ✅ API contract validation with OpenAPI
+- All tests must pass before deployment
+- Code coverage minimum 85%
+- No critical SonarQube violations
+- Docker health checks must succeed
+- API contract validation with OpenAPI
 
 ---
 
-## 📈 Performance & Scalability
+## Performance & Scalability
 
 ### Current Benchmarks
 - **Event Throughput**: 10K+ events/second (single node)
@@ -239,7 +239,7 @@ curl http://localhost:8083/actuator/metrics
 
 ---
 
-## 🔧 Configuration & Deployment
+## Configuration & Deployment
 
 ### Environment Profiles
 - **`simple`**: Local development with embedded Spark
@@ -265,7 +265,7 @@ curl http://localhost:8083/actuator/metrics
 
 ---
 
-## 📚 Documentation & Resources
+## Documentation & Resources
 
 ### Technical Documentation
 - **[Complete Architecture Diagram](docs/mermaid_graph.md)** - Detailed system design with infrastructure
@@ -290,29 +290,29 @@ curl http://localhost:8083/actuator/metrics
 
 ---
 
-## � **Release Notes - rev. 0.3**
+## Release Notes - v0.3
 
-### ✅ **New Features**
+### New Features
 - **Enhanced Analytics Suite**: Four specialized dashboard categories with real-time updates
 - **Production-Grade Observability**: Comprehensive Prometheus + Grafana monitoring stack
 - **Advanced SQL Analytics**: Complex campaign performance queries with ranking and CTEs
 - **Improved Error Handling**: Robust exception management with detailed logging
 - **Container Optimization**: Multi-stage Docker builds with health checks
 
-### ✅ **Core Stabilization**
+### Core Stabilization
 - **Exactly-Once Semantics**: Verified Spark Structured Streaming with idempotent operations
 - **KRaft-Ready Kafka**: Modern broker configuration without Zookeeper dependency
 - **Auto-Scaling Ready**: Horizontal scaling support for Spark workers and Kafka partitions
 - **Comprehensive Testing**: Unit, integration, property-based, and end-to-end test coverage
 
-### ⚠️ **Known Limitations**
+### Known Limitations
 - **Single-Node Deployment**: Optimized for demonstration; easily scalable with configuration changes
 - **Demo Data Volume**: Limited to sample datasets; production would require distributed storage
 - **Basic Authentication**: Simple auth implementation; production would need OAuth2/JWT integration
 
 ---
 
-## 🔮 Future Roadmap
+## Future Roadmap
 
 ### Phase 1: Advanced Analytics (Q2 2025)
 - **Machine Learning Integration**: Anomaly detection and forecasting models
@@ -331,9 +331,9 @@ curl http://localhost:8083/actuator/metrics
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
-We welcome contributions! This project demonstrates production-ready patterns that can be adapted for various use cases.
+We welcome contributions! This project demonstrates enterprise-ready patterns that can be adapted for various use cases.
 
 ### Development Workflow
 1. **Fork & Branch**: Create feature branches from `main`
@@ -351,13 +351,13 @@ pre-commit run --all-files
 ```
 
 ### Issue Reporting
-- **🐛 Bug Reports**: Use the bug report template with reproduction steps
-- **💡 Feature Requests**: Describe the business case and technical approach
-- **❓ Questions**: Check existing documentation before opening discussions
+- **Bug Reports**: Use the bug report template with reproduction steps
+- **Feature Requests**: Describe the business case and technical approach
+- **Questions**: Check existing documentation before opening discussions
 
 ---
 
-## � License & Attribution
+## License & Attribution
 
 **Creative Commons Attribution-NonCommercial 4.0 International** — see [`LICENSE`](LICENSE)
 
@@ -367,10 +367,8 @@ This project showcases modern data engineering practices and is intended for edu
 
 <div align="center">
 
-**Built with ❤️ and ☕ by Alex Chernysh** · [`alex@hireex.ai`](mailto:alex@hireex.ai)
+**TabulaRasa BI Core** - *Demonstrating Enterprise Data Engineering Excellence*
 
-*Demonstrating production-ready data engineering at scale*
-
-[🔗 Technical Documentation](docs/) · [🚀 Quick Start](#quick-start) · [📊 Live Demo](http://localhost:8080) · [📈 Monitoring](http://localhost:3000)
+[Technical Documentation](docs/) · [Quick Start](#quick-start) · [Live Demo](http://localhost:8080) · [Monitoring](http://localhost:3000)
 
 </div>
