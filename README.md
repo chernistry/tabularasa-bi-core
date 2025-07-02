@@ -125,8 +125,11 @@ docker compose -f root/docker/docker-compose.yml up -d tabularasa_postgres_db ka
 | **Analytics Dashboards** | http://localhost:8080 | Flask-based real-time analytics |
 | **REST API** | http://localhost:8083 | Spring Boot campaign analytics API |
 | **API Documentation** | http://localhost:8083/swagger-ui.html | Interactive Swagger UI |
+| **Kafka UI** | http://localhost:8088 | Kafka cluster management interface |
 | **Grafana Monitoring** | http://localhost:3000 | System metrics & alerts |
 | **Prometheus** | http://localhost:9090 | Raw metrics endpoint |
+| **Alertmanager** | http://localhost:9093 | Alert management interface |
+| **Jaeger Tracing** | http://localhost:16686 | Distributed tracing interface |
 | **Spark UI** | http://localhost:4040 | Job monitoring (when active) |
 
 ### Stop Services
