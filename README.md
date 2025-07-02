@@ -367,8 +367,8 @@ This project showcases modern data engineering practices and is intended for edu
 
 <div align="center">
 
-**TabulaRasa BI Core** - *Demonstrating Enterprise Data Engineering Excellence*
+**Built by Alex Chernysh** · [`alex@hireex.ai`](mailto:alex@hireex.ai)
 
-[Technical Documentation](docs/) · [Quick Start](#quick-start) · [Live Demo](http://localhost:8080) · [Monitoring](http://localhost:3000)
+*Demonstrating Enterprise Data Engineering Excellence*
 
 </div>
