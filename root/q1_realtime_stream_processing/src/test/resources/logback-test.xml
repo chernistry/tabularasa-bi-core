@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Set testcontainers logging to WARN level -->
+    <logger name="org.testcontainers" level="WARN"/>
+    <logger name="com.github.dockerjava" level="WARN"/>
+    <logger name="org.apache.spark" level="WARN"/>
+    <logger name="org.spark_project" level="WARN"/>
+    <logger name="org.apache.hadoop" level="WARN"/>
+    <logger name="io.netty" level="WARN"/>
+
+    <!-- Application logs at DEBUG level for tests -->
+    <logger name="com.tabularasa.bi" level="DEBUG"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

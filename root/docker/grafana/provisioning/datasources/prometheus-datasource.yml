@@ -1,0 +1,9 @@
+apiVersion: 1
+
+datasources:
+  - name: tabularasa_prometheus
+    type: prometheus
+    uid: tabularasa_prometheus
+    url: http://prometheus:9090
+    access: proxy
+    isDefault: true 

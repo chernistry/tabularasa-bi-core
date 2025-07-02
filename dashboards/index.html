@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TabulaRasa.ai - BI Command Center</title>
+    <script src="https://cdn.plot.ly/plotly-2.31.1.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="shared/main.css">
+    <style>
+        :root {
+            --primary-color-dark: #0d1117;
+            --surface-color-dark: #161b22;
+            --border-color-dark: #30363d;
+            --text-color-dark: #c9d1d9;
+            --text-secondary-color-dark: #8b949e;
+            --primary-accent-dark: #58a6ff;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--primary-color-dark);
+            color: var(--text-color-dark);
+            margin: 0;
+            padding: 2rem;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 4rem;
+        }
+
+        .header h1 {
+            font-family: 'Inter', sans-serif;
+            font-size: 3.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            color: white;
+        }
+        
+        .header h1 span {
+            font-weight: 500;
+            color: var(--primary-accent-dark);
+        }
+
+        .header p {
+            font-size: 1.25rem;
+            color: var(--text-secondary-color-dark);
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 2rem;
+        }
+
+        .dashboard-card {
+            background: var(--surface-color-dark);
+            border: 1px solid var(--border-color-dark);
+            border-radius: 8px;
+            padding: 1.5rem 2rem;
+            text-decoration: none;
+            color: var(--text-color-dark);
+            transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .dashboard-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+            border-color: var(--primary-accent-dark);
+        }
+
+        .card-title {
+            font-family: 'Inter', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 0 0 0.75rem 0;
+            color: white;
+        }
+
+        .card-narrative {
+            font-size: 1rem;
+            color: var(--text-secondary-color-dark);
+            margin-bottom: 1.5rem;
+            flex-grow: 1;
+            line-height: 1.5;
+        }
+
+        .card-viz {
+            min-height: 220px;
+            margin: 0 -1rem; /* Extend plots to fill card width better */
+        }
+
+        /* Health Status Specific */
+        .health-status {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            flex-direction: column;
+            margin: 0; /* Reset margin for this viz */
+        }
+        .status-indicator {
+            width: 80px;
+            height: 80px;
+            background-color: #238636; /* Success Green */
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            color: white;
+            box-shadow: 0 0 20px rgba(35, 134, 54, 0.5);
+            margin-bottom: 1rem;
+        }
+        .status-text {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: white;
+        }
+        .status-subtext {
+            color: var(--text-secondary-color-dark);
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1>TabulaRasa<span>.ai</span></h1>
+        <p>A unified BI Command Center providing a clear, narrative-driven view of key business drivers.</p>
+    </div>
+
+    <div class="dashboard-grid">
+        <!-- CEO Executive Pulse -->
+        <a href="ceo_executive_pulse/index.html" class="dashboard-card">
+            <div>
+                <h2 class="card-title">Executive Pulse</h2>
+                <p class="card-narrative">High-level overview of core business vitals, strategic initiatives, and market performance.</p>
+            </div>
+            <div id="ceo-viz" class="card-viz"></div>
+        </a>
+
+        <!-- Advertiser Campaign Performance -->
+        <a href="advertiser_campaign_performance/index.html" class="dashboard-card">
+            <div>
+                <h2 class="card-title">Advertiser Performance</h2>
+                <p class="card-narrative">Deep-dive into campaign effectiveness, audience engagement, and return on ad spend (ROAS).</p>
+            </div>
+            <div id="advertiser-viz" class="card-viz"></div>
+        </a>
+
+        <!-- BI Pipeline Health -->
+        <a href="bi_pipeline_health_data_trust/index.html" class="dashboard-card">
+             <div>
+                <h2 class="card-title">Data Trust & Pipeline</h2>
+                <p class="card-narrative">Real-time system health, data integrity status, and pipeline performance SLAs.</p>
+            </div>
+            <div class="card-viz health-status">
+                <div class="status-indicator">✓</div>
+                <div class="status-text">All Systems Go</div>
+                <p class="status-subtext">Data Freshness: &lt; 2 mins</p>
+            </div>
+        </a>
+    </div>
+</div>
+
+<script>
+    const plotLayout = {
+        paper_bgcolor: 'transparent',
+        plot_bgcolor: 'transparent',
+        margin: { t: 20, b: 40, l: 50, r: 20 },
+        font: {
+            color: 'var(--text-secondary-color-dark)'
+        },
+        xaxis: { gridcolor: 'var(--border-color-dark)', zeroline: false },
+        yaxis: { gridcolor: 'var(--border-color-dark)', zeroline: false }
+    };
+
+    // CEO Viz: Revenue Trend
+    Plotly.newPlot('ceo-viz', [{
+        x: ['Q1', 'Q2', 'Q3', 'Q4'],
+        y: [65, 72, 78, 85],
+        type: 'scatter',
+        mode: 'lines+markers',
+        line: { color: 'var(--primary-accent-dark)', width: 3 },
+        fill: 'tozeroy',
+        fillcolor: 'rgba(88, 166, 255, 0.2)'
+    }], { 
+        ...plotLayout, 
+        yaxis: { ...plotLayout.yaxis, title: 'Revenue ($M)' } 
+    }, { responsive: true, displayModeBar: false });
+
+    // Advertiser Viz: Top Campaigns by ROAS
+    Plotly.newPlot('advertiser-viz', [{
+        x: [4.5, 3.8, 3.2],
+        y: ['Campaign A', 'Campaign C', 'Campaign B'],
+        type: 'bar',
+        orientation: 'h',
+        marker: { 
+            color: 'var(--primary-accent-dark)',
+            opacity: 0.8
+        }
+    }], { 
+        ...plotLayout, 
+        yaxis: { autorange: 'reversed' } 
+    }, { responsive: true, displayModeBar: false });
+</script>
+
+</body>
+</html>

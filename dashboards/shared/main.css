@@ -1,0 +1,284 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+    --primary-font: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+    --bg-color: #f4f5f7; /* Lighter, cleaner grey */
+    --surface-color: #ffffff;
+    --text-color: #172b4d; /* Darker, more saturated blue/black for text */
+    --primary-color: #0052cc; /* A more refined blue */
+    --secondary-color: #5e6c84; /* Softer secondary text color */
+    
+    /* Bauhaus-inspired accents */
+    --accent-yellow: #ffc107;
+    --accent-red: #dc3545;
+    --accent-green: #2ca02c;
+
+    --danger-color: #dc3545;
+    --warning-color: #ffc107;
+    --success-color: #198754;
+    
+    --border-color: #dfe1e6; /* Softer border color */
+    --shadow-color: rgba(9, 30, 66, 0.1); /* Subtle shadow */
+    --border-radius: 6px; /* Slightly sharper corners */
+    --header-height: 60px;
+}
+
+body {
+    font-family: var(--primary-font);
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    margin: 0;
+    padding-top: var(--header-height); /* Space for fixed header */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.main-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: var(--header-height);
+    background-color: var(--surface-color);
+    box-shadow: 0 0 8px var(--shadow-color);
+    display: flex;
+    align-items: center;
+    padding: 0 24px;
+    z-index: 1000;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.main-header .logo {
+    font-weight: 700;
+    font-size: 1.5rem;
+    color: var(--text-color);
+    text-decoration: none;
+}
+.main-header .logo span {
+    color: var(--primary-color);
+    font-weight: 500;
+}
+
+.main-header nav {
+    margin-left: 40px;
+}
+
+.main-header nav a {
+    text-decoration: none;
+    color: var(--secondary-color);
+    margin: 0 16px;
+    font-weight: 500;
+    transition: color 0.2s ease;
+    padding-bottom: 4px;
+    border-bottom: 2px solid transparent;
+}
+
+.main-header nav a.active,
+.main-header nav a:hover {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+}
+
+
+.dashboard-container {
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 32px; /* More breathing room */
+}
+
+.dashboard-title {
+    margin-bottom: 8px;
+    font-size: 2.25rem;
+    font-weight: 700;
+    color: var(--text-color);
+}
+
+.dashboard-subtitle {
+    margin-top: 0;
+    margin-bottom: 32px; /* More breathing room */
+    font-size: 1.1rem;
+    color: var(--secondary-color);
+    font-weight: 400;
+    max-width: 800px; /* Improve readability */
+}
+
+.card {
+    background: var(--surface-color);
+    border-radius: var(--border-radius);
+    padding: 24px;
+    border: 1px solid var(--border-color);
+    box-shadow: none; /* Flatter, Bauhaus-style */
+    transition: border-color 0.2s ease;
+    display: flex;
+    flex-direction: column;
+}
+
+.card:hover {
+    border-color: var(--primary-color);
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 16px;
+    margin-bottom: 16px;
+}
+
+.card-title {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.info-icon {
+    cursor: pointer;
+    color: var(--secondary-color);
+    font-size: 1.2rem;
+    transition: color 0.2s ease;
+}
+
+.info-icon:hover {
+    color: var(--primary-color);
+}
+
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 24px;
+}
+.kpi-grid.grid-col-5 {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+
+.kpi-card {
+    padding: 20px;
+    text-align: center;
+}
+
+.kpi-label {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--secondary-color);
+    margin-bottom: 8px;
+}
+
+.kpi-value {
+    font-size: 2.75rem;
+    font-weight: 600;
+    line-height: 1.1;
+    color: var(--text-color);
+    margin-bottom: 8px;
+}
+
+.kpi-value .unit {
+    font-size: 1.5rem;
+    font-weight: 400;
+    color: var(--secondary-color);
+    margin-left: 4px;
+}
+
+.chart-container {
+    flex-grow: 1;
+    min-height: 300px;
+}
+
+.dashboard-grid {
+    display: grid;
+    gap: 24px;
+}
+
+/* Example for a 2-column grid */
+.grid-col-2 {
+    grid-template-columns: repeat(2, 1fr);
+}
+
+/* Example for a layout with a main chart and side charts */
+.main-side-layout {
+    grid-template-columns: 2fr 1fr;
+    align-items: flex-start;
+}
+
+/* Example for a 4-column grid */
+.grid-col-4 {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+
+/* Modal styles for info popups */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1001;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(9, 30, 66, 0.4); /* Use text color for overlay */
+    backdrop-filter: blur(4px);
+}
+
+.modal-content {
+    background-color: var(--surface-color);
+    margin: 15% auto;
+    padding: 24px;
+    border: none;
+    width: 90%;
+    max-width: 500px;
+    border-radius: var(--border-radius);
+    box-shadow: 0 10px 30px rgba(9, 30, 66, 0.2);
+}
+
+.close-button {
+    color: var(--secondary-color);
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: color 0.2s ease;
+}
+
+.close-button:hover {
+    color: var(--text-color);
+}
+
+/* Styles for Publisher Yield Optimization Simulator */
+.simulator-grid {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 24px;
+    align-items: center;
+}
+.simulator-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+.slider-container {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 16px;
+}
+.slider-container label {
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+.slider-container input[type="range"] {
+    width: 100%;
+}
+.predicted-rpm {
+    text-align: center;
+}
+.predicted-rpm .rpm-value {
+    font-size: 4rem;
+    font-weight: 700;
+    color: var(--primary-color);
+    line-height: 1.1;
+}
+.predicted-rpm .rpm-label {
+    font-size: 1.2rem;
+    color: var(--secondary-color);
+} 

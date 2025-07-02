@@ -1,0 +1,111 @@
+# Common application configuration for both simple and spark profiles
+spring:
+  application:
+    name: q1-realtime-stream-processing
+  
+  # Main datasource configuration
+  datasource:
+    url: jdbc:postgresql://localhost:5432/tabularasadb
+    username: tabulauser
+    password: tabulapass
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      idle-timeout: 30000
+      connection-timeout: 20000
+      max-lifetime: 1200000
+      pool-name: SparkStreamProcessor
+  
+  # JPA configuration (used in simple profile)
+  jpa:
+    hibernate:
+      ddl-auto: validate # Prevents automatic schema updates
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        jdbc:
+          batch_size: 50
+          batch_versioned_data: true
+        order_inserts: true
+        order_updates: true
+    show-sql: false
+  
+  # Kafka configuration for simple mode
+  kafka:
+    security:
+      protocol: PLAINTEXT
+    bootstrap-servers: localhost:19092
+    consumer:
+      group-id: q1_stream_consumer_group
+      auto-offset-reset: earliest
+      fetch-max-bytes: 5242880
+      max-poll-records: 500
+    producer:
+      acks: all
+      retries: 3
+      batch-size: 16384
+      buffer-memory: 33554432
+
+# Application-specific Kafka settings
+app:
+  kafka:
+    bootstrap-servers: ${spring.kafka.bootstrap-servers}
+    topics:
+      ad-events: ad-events
+
+# Spark configuration used in spark profile
+spark:
+  app:
+    name: TabularasaBIStreamProcessor
+  master: local[2]
+  driver:
+    memory: 1g
+  executor:
+    memory: 1g
+    cores: 1
+  default:
+    parallelism: 2
+  sql:
+    shuffle:
+      partitions: 2
+  streaming:
+    checkpoint-location: /tmp/spark_checkpoints
+    backpressure:
+      enabled: true
+    kafka:
+      maxRatePerPartition: 100
+    unpersist: true
+  serializer: org.apache.spark.serializer.KryoSerializer
+  kryo:
+    registrator: com.tabularasa.bi.q1_realtime_stream_processing.serialization.KryoRegistrator
+
+# Configure actuator endpoints
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+    metrics:
+      export:
+      prometheus:
+        enabled: true
+
+# Configure server port
+server:
+  port: 8083
+
+# Logging configuration
+logging:
+  level:
+    root: INFO
+    com.tabularasa.bi: INFO
+    org.apache.spark: WARN
+    org.spark_project: WARN
+    org.apache.hadoop: WARN
+    org.apache.kafka: WARN
+    org.hibernate: WARN 

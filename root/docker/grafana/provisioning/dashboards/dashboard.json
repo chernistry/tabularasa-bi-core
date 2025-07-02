@@ -1,0 +1,101 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "target": {
+          "limit": 100,
+          "matchAny": false,
+          "tags": [],
+          "type": "dashboard"
+        },
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 1,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Postgres TPS (commits/sec)",
+      "datasource": { "type": "prometheus", "uid": "tabularasa_prometheus" },
+      "targets": [
+        {
+          "expr": "rate(pg_stat_database_xact_commit{datname=\"tabularasadb\"}[1m])",
+          "refId": "A"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Postgres Active Connections",
+      "datasource": { "type": "prometheus", "uid": "tabularasa_prometheus" },
+      "targets": [
+        {
+          "expr": "pg_stat_database_numbackends{datname=\"tabularasadb\"}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Database Size",
+      "datasource": { "type": "prometheus", "uid": "tabularasa_prometheus" },
+      "targets": [
+        {
+          "expr": "pg_database_size_bytes{datname=\"tabularasadb\"}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] }
+    },
+    {
+      "type": "stat",
+      "title": "Service Up",
+      "datasource": { "type": "prometheus", "uid": "tabularasa_prometheus" },
+      "targets": [
+        {
+          "expr": "sum by(job) (up)",
+          "refId": "A"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["tabularasa-bi", "postgres"],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "TabulaRasa Postgres Metrics",
+  "uid": "tabularasa-postgres",
+  "version": 1,
+  "weekStart": ""
+} 
