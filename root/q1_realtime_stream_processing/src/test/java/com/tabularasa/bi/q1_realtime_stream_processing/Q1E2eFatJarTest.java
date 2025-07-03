@@ -3,6 +3,7 @@ package com.tabularasa.bi.q1_realtime_stream_processing;
 import com.github.dockerjava.api.command.ExecCreateCmdResponse;
 import com.github.dockerjava.api.model.Frame;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.condition.EnabledIf;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.DockerClientFactory;
@@ -35,13 +36,33 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
+/**
+ * Production-ready integration test that only runs when Docker is available.
+ * Uses @EnabledIf to conditionally execute tests based on Docker availability.
+ */
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@EnabledIf("dockerAvailable")
 @SuppressWarnings({"resource", "deprecation"})
 public class Q1E2eFatJarTest {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Q1E2eFatJarTest.class);
     private static Network network = Network.newNetwork();
+
+    /**
+     * Condition method to check if Docker is available.
+     * This prevents test failures in environments without Docker.
+     */
+    static boolean dockerAvailable() {
+        try {
+            DockerClientFactory.instance().client().pingCmd().exec();
+            LOGGER.info("Docker is available - integration tests will run");
+            return true;
+        } catch (Exception e) {
+            LOGGER.warn("Docker is not available - skipping integration tests: {}", e.getMessage());
+            return false;
+        }
+    }
 
     @Container
     @SuppressWarnings({"resource", "deprecation"})

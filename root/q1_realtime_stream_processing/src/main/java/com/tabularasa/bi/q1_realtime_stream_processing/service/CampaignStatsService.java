@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -40,6 +41,12 @@ public class CampaignStatsService {
     @Transactional(readOnly = true)
     public List<CampaignStatsDto> getCampaignStats(String campaignId, LocalDateTime startTime, LocalDateTime endTime) {
         log.debug("Retrieving stats for campaign {} between {} and {}", campaignId, startTime, endTime);
+        
+        // Validate input parameters for production safety
+        if (campaignId == null || startTime == null || endTime == null) {
+            log.warn("Invalid parameters provided: campaignId={}, startTime={}, endTime={}", campaignId, startTime, endTime);
+            return Collections.emptyList();
+        }
         
         // Optimized SQL query with predicate pushdown
         String sql = "SELECT window_start_time, campaign_id, event_type, event_count, total_bid_amount " +
