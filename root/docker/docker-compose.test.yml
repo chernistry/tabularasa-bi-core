@@ -1,0 +1,233 @@
+services:
+  # ================== DATABASE SERVICES ==================
+  # --► PostgreSQL for app data
+  tabularasa_postgres_db:
+    image: postgres:14.11-alpine
+    container_name: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=tabulauser
+      - POSTGRES_PASSWORD=tabulapass
+      - POSTGRES_DB=tabularasadb
+    volumes:
+      - tabularasa_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tabulauser -d tabularasadb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - docker_bi_network
+
+  # Zookeeper service commented out as part of Kafka KRaft migration
+  # zookeeper:
+  #   image: bitnami/zookeeper:3.9
+  #   container_name: zookeeper
+  #   ports:
+  #     - "2181:2181"
+  #   environment:
+  #     - ALLOW_ANONYMOUS_LOGIN=yes
+  #   volumes:
+  #     - zookeeper_data:/bitnami/zookeeper
+  #   restart: always
+  #   networks:
+  #     - docker_bi_network
+
+  # Kafka configured to use KRaft mode (no Zookeeper)
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: kafka
+    ports:
+      - "9092:9092"
+      - "19092:19092"
+    environment:
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@localhost:9094
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_LISTENERS=INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:19092,CONTROLLER://0.0.0.0:9094
+      - KAFKA_CFG_ADVERTISED_LISTENERS=INTERNAL://kafka:9092,EXTERNAL://localhost:19092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=INTERNAL
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      # Enable KRaft mode
+      - KAFKA_KRAFT_CLUSTER_ID=tabulaRasaBiKafkaClusterTest123
+    volumes:
+      - kafka_data:/bitnami/kafka
+    restart: always
+    networks:
+      - docker_bi_network
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    container_name: kafka-ui
+    ports:
+      - "8088:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local-kafka
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      # Remove Zookeeper reference for KRaft
+      # KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    depends_on:
+      - kafka
+    networks:
+      - docker_bi_network
+
+  # ================== SPARK CLUSTER ==================
+  # --► Spark master and worker for distributed processing
+  spark-master:
+    image: bitnami/spark:3.5
+    container_name: spark-master
+    ports:
+      - "8081:8080"
+      - "7077:7077"
+    user: root
+    environment:
+      - SPARK_MODE=master
+      - HOME=/tmp
+      - USER_HOME=/tmp
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+      - HADOOP_USER_NAME=root
+    volumes:
+      - ./spark_apps:/opt/spark_apps
+      - ./spark_data:/opt/spark_data
+    networks:
+      - docker_bi_network
+
+  spark-worker:
+    image: bitnami/spark:3.5
+    container_name: spark-worker
+    depends_on:
+      - spark-master
+    ports:
+      - "8082:8080"
+    user: root
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=1G
+      - SPARK_WORKER_CORES=1
+      - HOME=/tmp
+      - USER_HOME=/tmp
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+      - HADOOP_USER_NAME=root
+    volumes:
+      - ./spark_apps:/opt/spark_apps
+      - ./spark_data:/opt/spark_data
+    networks:
+      - docker_bi_network
+
+  # ================== MONITORING SERVICES ==================
+  # --► Prometheus for metrics collection
+  prometheus:
+    build:
+      context: ./prometheus
+      dockerfile: Dockerfile
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    restart: always
+    networks:
+      - docker_bi_network
+
+  # --► Alertmanager for handling alerts
+  alertmanager:
+    build:
+      context: ./alertmanager
+      dockerfile: Dockerfile
+    container_name: alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    restart: always
+    networks:
+      - docker_bi_network
+
+  # --► Grafana for visualization
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data_vol:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      - GF_SECURITY_DISABLE_INITIAL_ADMIN_PASSWORD_CHANGE=true
+    restart: always
+    networks:
+      - docker_bi_network
+
+  # --► Spring Boot REST API & Simple Processor (exposes JVM metrics)
+  bi-app:
+    image: openjdk:17-jdk-slim
+    container_name: bi-app
+    depends_on:
+      - kafka
+      - tabularasa_postgres_db
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_PROFILES_ACTIVE: simple
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/tabularasadb
+      SPRING_DATASOURCE_USERNAME: tabulauser
+      SPRING_DATASOURCE_PASSWORD: tabulapass
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      HADOOP_USER_NAME: root
+      HADOOP_HOME: /opt/hadoop
+      JAVA_OPTS: "-Xms512m -Xmx1g -Dhadoop.security.authentication=simple -Dorg.apache.hadoop.security.authentication=simple -Djavax.security.auth.useSubjectCredsOnly=false -Djava.security.auth.login.config=/dev/null -Djava.security.krb5.conf=/dev/null -Dspark.hadoop.hadoop.security.authentication=simple -Dspark.kerberos.keytab=none -Dspark.kerberos.principal=none"
+    volumes:
+      - ../q1_realtime_stream_processing/target/q1_realtime_stream_processing-0.0.1-SNAPSHOT-exec.jar:/app/app.jar:ro
+    command: ["java", "-Dhadoop.security.authentication=simple", "-Dorg.apache.hadoop.security.authentication=simple", "-Dspark.hadoop.hadoop.security.authentication=simple", "-Djavax.security.auth.useSubjectCredsOnly=false", "-Djava.security.auth.login.config=/dev/null", "-Djava.security.krb5.conf=/dev/null", "-Dhadoop.home.dir=/", "-DHADOOP_USER_NAME=root", "-Dspark.kerberos.keytab=none", "-Dspark.kerberos.principal=none", "-jar", "/app/app.jar"]
+    networks:
+      - docker_bi_network
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: postgres-exporter
+    environment:
+      - DATA_SOURCE_NAME=postgresql://tabulauser:tabulapass@tabularasa_postgres_db:5432/tabularasadb?sslmode=disable
+    ports:
+      - "9187:9187"
+    depends_on:
+      - tabularasa_postgres_db
+    networks:
+      - docker_bi_network
+
+# ================== NETWORKS AND VOLUMES ==================
+networks:
+  docker_bi_network:
+    driver: bridge
+
+volumes:
+  tabularasa_pg_data:
+  # zookeeper_data:
+  kafka_data:
+  prometheus_data:
+  alertmanager_data:
+  grafana_data_vol: 

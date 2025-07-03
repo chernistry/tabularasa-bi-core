@@ -1,0 +1,6 @@
+services:
+  verify:
+    image: alpine:latest
+    command: ls -l /test_mount/
+    volumes:
+      - ${PROJECT_ROOT}/root/docker/prometheus/prometheus.yml:/test_mount/prometheus.yml 

@@ -1,0 +1,52 @@
+# Git
+.git
+.gitignore
+.github
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Build files
+**/target/
+**/build/
+**/node_modules/
+**/dist/
+**/.gradle/
+**/.mvn/
+
+# Logs
+**/logs/
+**/*.log
+
+# Local environment files
+.env
+.env.*
+**/*.env
+
+# Docker
+**/Dockerfile*
+docker-compose*
+.dockerignore
+
+# Documentation
+README.md
+CHANGELOG.md
+docs/
+
+# Test files
+**/test/
+**/tests/
+**/src/test/
+
+# Temporary files
+**/tmp/
+**/temp/
+
+# Specific to this project
+root/docker/spark_data/
+root/docker/grafana_data/ 

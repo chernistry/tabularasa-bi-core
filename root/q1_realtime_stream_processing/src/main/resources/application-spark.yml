@@ -1,0 +1,69 @@
+# Application configuration for Spark profile
+spring:
+  application:
+    name: q1-realtime-stream-processing-spark
+  
+  # Disable JPA for Spark profile
+  jpa:
+    open-in-view: false
+    
+  # Main datasource configuration
+  datasource:
+    url: jdbc:postgresql://localhost:5432/tabularasadb
+    username: tabulauser
+    password: tabulapass
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  
+  # Configure server port
+  server:
+    port: 8083
+  
+  # Configure actuator endpoints
+  management:
+    endpoints:
+      web:
+        exposure:
+          include: health,info,metrics,prometheus
+    endpoint:
+      health:
+        show-details: always
+      metrics:
+        enabled: true
+      prometheus:
+        enabled: true
+
+# Spark configuration
+spark:
+  app.name: AdEventSparkStreamer
+  master: local[2]
+  driver.memory: 1g
+  executor.memory: 1g
+  executor.cores: 1
+  default.parallelism: 2
+  sql.shuffle.partitions: 2
+  streaming.checkpoint-location: /tmp/spark_checkpoints
+  kryo.registrator: com.tabularasa.bi.q1_realtime_stream_processing.serialization.KryoRegistrator
+
+# Kafka configuration
+app:
+  kafka:
+    bootstrap-servers: localhost:19092
+    topics:
+      ad-events: ad-events
+    consumer:
+      group-id: bi-stream-processor
+      auto-offset-reset: latest
+
+# Logging configuration
+logging:
+  level:
+    root: INFO
+    com.tabularasa.bi: INFO
+    org.apache.spark: WARN
+    org.apache.kafka: WARN
+    org.springframework: WARN 
