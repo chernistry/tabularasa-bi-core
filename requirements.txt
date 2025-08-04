@@ -1,5 +1,64 @@
-fastapi
-uvicorn[standard]
-sqlalchemy
-asyncpg
-psycopg2-binary 
+# Production-ready Python dependencies with pinned versions (2025 standards)
+
+# Web Framework - FastAPI with production features
+fastapi==0.104.1                    # High-performance async web framework
+uvicorn[standard]==0.24.0           # ASGI server with performance optimizations
+gunicorn==21.2.0                    # Production WSGI server for scaling
+
+# Database ORM and Drivers - Latest stable versions
+sqlalchemy==2.0.23                 # Modern SQLAlchemy with async support
+asyncpg==0.29.0                     # High-performance async PostgreSQL driver
+psycopg2-binary==2.9.9              # Synchronous PostgreSQL adapter
+alembic==1.12.1                     # Database migration tool
+
+# Data Processing and Analytics
+pandas==2.1.4                       # Data manipulation and analysis
+numpy==1.26.2                       # Numerical computing foundation
+pyarrow==14.0.1                     # Columnar data format for performance
+
+# HTTP Client and Networking
+httpx==0.25.2                       # Modern async HTTP client
+aiohttp==3.9.1                      # Async HTTP client/server framework
+requests==2.31.0                    # Synchronous HTTP library (fallback)
+
+# Security and Authentication
+cryptography==41.0.8                # Cryptographic recipes and primitives
+pyjwt[crypto]==2.8.0                # JSON Web Token implementation
+passlib[bcrypt]==1.7.4              # Password hashing library
+
+# Monitoring and Observability
+prometheus-client==0.19.0           # Prometheus metrics client
+opentelemetry-api==1.21.0          # OpenTelemetry tracing API
+opentelemetry-sdk==1.21.0          # OpenTelemetry SDK
+opentelemetry-instrumentation-fastapi==0.42b0  # FastAPI auto-instrumentation
+
+# Configuration and Environment Management
+pydantic==2.5.0                     # Data validation using Python type hints
+pydantic-settings==2.1.0            # Settings management with Pydantic
+python-multipart==0.0.6             # Form parsing support
+python-jose[cryptography]==3.3.0    # JOSE implementation for JWT
+
+# Logging and Structured Logging
+structlog==23.2.0                   # Structured logging
+python-json-logger==2.0.7           # JSON formatter for Python logging
+
+# Task Queue and Background Processing
+celery==5.3.4                       # Distributed task queue
+redis==5.0.1                        # Redis client for Celery broker
+
+# Testing and Development Tools (optional for production)
+pytest==7.4.3                       # Testing framework
+pytest-asyncio==0.21.1              # Async testing support
+pytest-cov==4.1.0                   # Coverage reporting
+black==23.11.0                      # Code formatter
+isort==5.12.0                       # Import sorter
+flake8==6.1.0                       # Linting tool
+mypy==1.7.1                         # Static type checker
+
+# Production Deployment
+docker==6.1.3                       # Docker SDK for Python
+kubernetes==28.1.0                  # Kubernetes client library
+
+# Environment and Configuration
+python-dotenv==1.0.0                # Load environment variables from .env file
+pyyaml==6.0.1                       # YAML parser and emitter 

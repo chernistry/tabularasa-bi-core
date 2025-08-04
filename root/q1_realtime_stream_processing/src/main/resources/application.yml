@@ -1,111 +1,412 @@
-# Common application configuration for both simple and spark profiles
+# Production-ready application configuration with 2025 best practices
 spring:
   application:
-    name: q1-realtime-stream-processing
+    name: tabularasa-bi-realtime-processor
   
-  # Main datasource configuration
+  # Enhanced datasource configuration with production-grade connection pooling
   datasource:
     url: jdbc:postgresql://localhost:5432/tabularasadb
-    username: tabulauser
-    password: tabulapass
+    username: ${DB_USERNAME:tabulauser}
+    password: ${DB_PASSWORD:tabulapass}
     driver-class-name: org.postgresql.Driver
     hikari:
-      maximum-pool-size: 10
-      minimum-idle: 2
-      idle-timeout: 30000
-      connection-timeout: 20000
-      max-lifetime: 1200000
-      pool-name: SparkStreamProcessor
+      # Production-optimized connection pool settings
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      idle-timeout: ${DB_POOL_IDLE_TIMEOUT:300000}     # 5 minutes
+      connection-timeout: ${DB_CONNECTION_TIMEOUT:30000}  # 30 seconds
+      max-lifetime: ${DB_CONNECTION_MAX_LIFETIME:1800000} # 30 minutes
+      validation-timeout: ${DB_VALIDATION_TIMEOUT:5000}   # 5 seconds
+      leak-detection-threshold: ${DB_LEAK_DETECTION:60000} # 60 seconds
+      pool-name: TabulaRasaBIConnectionPool
+      # Enable connection testing and health checks
+      connection-test-query: SELECT 1
+      connection-init-sql: SET timezone = 'UTC'
+      # Production monitoring and logging
+      register-mbeans: true
+      auto-commit: false
   
-  # JPA configuration (used in simple profile)
+  # Production-optimized JPA configuration
   jpa:
     hibernate:
-      ddl-auto: validate # Prevents automatic schema updates
+      ddl-auto: validate # Prevents automatic schema updates in production
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
-        format_sql: true
+        format_sql: false # Disabled for production performance
         jdbc:
-          batch_size: 50
+          batch_size: ${HIBERNATE_BATCH_SIZE:100}  # Optimized batch size
           batch_versioned_data: true
+          fetch_size: ${HIBERNATE_FETCH_SIZE:50}
+        # Production performance optimizations
         order_inserts: true
         order_updates: true
+        generate_statistics: ${HIBERNATE_STATS:false}
+        cache:
+          use_second_level_cache: true
+          use_query_cache: true
+          region.factory_class: org.hibernate.cache.jcache.JCacheRegionFactory
+        # Connection handling
+        connection:
+          provider_disables_autocommit: true
     show-sql: false
+    open-in-view: false  # Prevent lazy loading issues in web layer
   
-  # Kafka configuration for simple mode
+  # Production-grade Kafka configuration with resilience features
   kafka:
     security:
-      protocol: PLAINTEXT
-    bootstrap-servers: localhost:19092
+      protocol: ${KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092}
+    # Enhanced consumer configuration for production reliability
     consumer:
-      group-id: q1_stream_consumer_group
-      auto-offset-reset: earliest
-      fetch-max-bytes: 5242880
-      max-poll-records: 500
+      group-id: ${KAFKA_CONSUMER_GROUP:tabularasa_realtime_processor}
+      client-id: ${KAFKA_CLIENT_ID:tabularasa-processor-${random.uuid}}
+      auto-offset-reset: ${KAFKA_AUTO_OFFSET_RESET:earliest}
+      enable-auto-commit: false  # Manual commit for exactly-once semantics
+      fetch-max-bytes: ${KAFKA_FETCH_MAX_BYTES:10485760}  # 10MB
+      fetch-min-bytes: ${KAFKA_FETCH_MIN_BYTES:1024}      # 1KB
+      fetch-max-wait: ${KAFKA_FETCH_MAX_WAIT:500}         # 500ms
+      max-poll-records: ${KAFKA_MAX_POLL_RECORDS:1000}
+      max-poll-interval: ${KAFKA_MAX_POLL_INTERVAL:300000} # 5 minutes
+      session-timeout: ${KAFKA_SESSION_TIMEOUT:30000}      # 30 seconds
+      heartbeat-interval: ${KAFKA_HEARTBEAT_INTERVAL:10000} # 10 seconds
+      # Deserialization configuration
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # Error handling
+      isolation-level: read_committed
+    # Enhanced producer configuration for reliability
     producer:
-      acks: all
-      retries: 3
-      batch-size: 16384
-      buffer-memory: 33554432
+      client-id: ${KAFKA_PRODUCER_CLIENT_ID:tabularasa-producer-${random.uuid}}
+      acks: ${KAFKA_PRODUCER_ACKS:all}  # Wait for all replicas
+      retries: ${KAFKA_PRODUCER_RETRIES:2147483647}  # Max retries
+      enable-idempotence: true  # Exactly-once semantics
+      batch-size: ${KAFKA_PRODUCER_BATCH_SIZE:65536}    # 64KB
+      linger-ms: ${KAFKA_PRODUCER_LINGER:5}             # 5ms batching delay
+      buffer-memory: ${KAFKA_PRODUCER_BUFFER:67108864}  # 64MB
+      compression-type: ${KAFKA_COMPRESSION:snappy}     # Compression for efficiency
+      max-in-flight-requests-per-connection: 5          # Pipeline optimization
+      # Timeout configurations
+      request-timeout: ${KAFKA_REQUEST_TIMEOUT:30000}   # 30 seconds
+      delivery-timeout: ${KAFKA_DELIVERY_TIMEOUT:120000} # 2 minutes
+      # Serialization
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
 
-# Application-specific Kafka settings
+# Application-specific configuration with environment variable support
 app:
   kafka:
     bootstrap-servers: ${spring.kafka.bootstrap-servers}
     topics:
-      ad-events: ad-events
+      ad-events: ${KAFKA_TOPIC_AD_EVENTS:ad-events}
+    # Circuit breaker configuration for Kafka operations
+    circuit-breaker:
+      failure-threshold: ${KAFKA_CB_FAILURE_THRESHOLD:5}
+      timeout-duration: ${KAFKA_CB_TIMEOUT:60s}
+      half-open-max-calls: ${KAFKA_CB_HALF_OPEN_CALLS:3}
+  # Database circuit breaker configuration
+  database:
+    circuit-breaker:
+      failure-threshold: ${DB_CB_FAILURE_THRESHOLD:3}
+      timeout-duration: ${DB_CB_TIMEOUT:30s}
+      half-open-max-calls: ${DB_CB_HALF_OPEN_CALLS:2}
+  # Performance monitoring configuration
+  monitoring:
+    metrics:
+      export-interval: ${METRICS_EXPORT_INTERVAL:30s}
+      enable-jvm-metrics: ${ENABLE_JVM_METRICS:true}
+      enable-process-metrics: ${ENABLE_PROCESS_METRICS:true}
 
-# Spark configuration used in spark profile
+# Production-optimized Spark configuration
 spark:
   app:
-    name: TabularasaBIStreamProcessor
-  master: local[2]
+    name: ${SPARK_APP_NAME:TabulaRasaBIStreamProcessor}
+  master: ${SPARK_MASTER:local[*]}
+  # Enhanced driver configuration for production workloads
   driver:
-    memory: 1g
+    memory: ${SPARK_DRIVER_MEMORY:2g}
+    cores: ${SPARK_DRIVER_CORES:2}
+    maxResultSize: ${SPARK_DRIVER_MAX_RESULT_SIZE:1g}
+    bindAddress: ${SPARK_DRIVER_BIND_ADDRESS:0.0.0.0}
+  # Optimized executor configuration
   executor:
-    memory: 1g
-    cores: 1
+    memory: ${SPARK_EXECUTOR_MEMORY:2g}
+    cores: ${SPARK_EXECUTOR_CORES:2}
+    memoryFraction: ${SPARK_EXECUTOR_MEMORY_FRACTION:0.8}
+    instances: ${SPARK_EXECUTOR_INSTANCES:2}
+  # Performance tuning
   default:
-    parallelism: 2
+    parallelism: ${SPARK_DEFAULT_PARALLELISM:8}
   sql:
+    adaptive:
+      enabled: true
+      coalescePartitions:
+        enabled: true
+        initialPartitionNum: ${SPARK_INITIAL_PARTITIONS:200}
+        minPartitionSize: ${SPARK_MIN_PARTITION_SIZE:1MB}
+      skewJoin:
+        enabled: true
+        skewedPartitionFactor: ${SPARK_SKEW_FACTOR:5}
+      localShuffleReader:
+        enabled: true
     shuffle:
-      partitions: 2
+      partitions: ${SPARK_SHUFFLE_PARTITIONS:200}
+      spill:
+        compress: true
+    execution:
+      arrow:
+        pyspark:
+          enabled: ${SPARK_ARROW_ENABLED:true}
+  # Production streaming configuration
   streaming:
-    checkpoint-location: /tmp/spark_checkpoints
+    checkpoint-location: ${SPARK_CHECKPOINT_LOCATION:/opt/spark/checkpoints}
     backpressure:
       enabled: true
+      initialRate: ${SPARK_INITIAL_RATE:1000}
     kafka:
-      maxRatePerPartition: 100
+      maxRatePerPartition: ${SPARK_MAX_RATE_PER_PARTITION:1000}
+      minPartitions: ${SPARK_MIN_PARTITIONS:2}
+    stopGracefullyOnShutdown: true
     unpersist: true
+  # Optimized serialization
   serializer: org.apache.spark.serializer.KryoSerializer
   kryo:
     registrator: com.tabularasa.bi.q1_realtime_stream_processing.serialization.KryoRegistrator
+    registrationRequired: false
+    referenceTracking: false
+    unsafe: true
+  # Network and I/O optimization
+  network:
+    timeout: ${SPARK_NETWORK_TIMEOUT:120s}
+  rpc:
+    askTimeout: ${SPARK_RPC_ASK_TIMEOUT:120s}
+    lookupTimeout: ${SPARK_RPC_LOOKUP_TIMEOUT:120s}
 
-# Configure actuator endpoints
+# Production-grade management and monitoring configuration
 management:
   endpoints:
     web:
+      # Comprehensive endpoint exposure for production monitoring
       exposure:
-        include: health,info,metrics,prometheus
+        include: health,info,metrics,prometheus,env,configprops,threaddump,heapdump,scheduledtasks,beans
+      base-path: /actuator
+      path-mapping:
+        health: health
+        prometheus: metrics
+    # Enable individual endpoint configuration
+    enabled-by-default: false
   endpoint:
+    # Health endpoint with comprehensive checks
     health:
-      show-details: always
-    metrics:
-      export:
-      prometheus:
+      enabled: true
+      show-details: ${MANAGEMENT_HEALTH_SHOW_DETAILS:when-authorized}
+      show-components: always
+      group:
+        readiness:
+          include: readinessState,db,kafka
+        liveness:
+          include: livenessState,diskSpace
+      # Custom health indicators
+      probes:
         enabled: true
+    # Metrics endpoint with filtering
+    metrics:
+      enabled: true
+      export:
+        prometheus:
+          enabled: true
+          descriptions: true
+          step: ${PROMETHEUS_STEP:30s}
+          pushgateway:
+            enabled: ${PROMETHEUS_PUSHGATEWAY_ENABLED:false}
+            base-url: ${PROMETHEUS_PUSHGATEWAY_URL:http://localhost:9091}
+    # Info endpoint with build information
+    info:
+      enabled: true
+      build:
+        enabled: true
+      git:
+        enabled: true
+        mode: full
+      java:
+        enabled: true
+      os:
+        enabled: true
+    # Environment endpoint (restricted in production)
+    env:
+      enabled: ${MANAGEMENT_ENV_ENABLED:false}
+      show-values: ${MANAGEMENT_ENV_SHOW_VALUES:when-authorized}
+    # Configuration properties endpoint
+    configprops:
+      enabled: ${MANAGEMENT_CONFIGPROPS_ENABLED:false}
+      show-values: when-authorized
+    # Thread dump for debugging
+    threaddump:
+      enabled: ${MANAGEMENT_THREADDUMP_ENABLED:true}
+    # Heap dump for memory analysis
+    heapdump:
+      enabled: ${MANAGEMENT_HEAPDUMP_ENABLED:true}
+    # Scheduled tasks monitoring
+    scheduledtasks:
+      enabled: ${MANAGEMENT_SCHEDULEDTASKS_ENABLED:true}
+    # Bean definitions
+    beans:
+      enabled: ${MANAGEMENT_BEANS_ENABLED:false}
+  # Security configuration for management endpoints
+  security:
+    enabled: ${MANAGEMENT_SECURITY_ENABLED:true}
+  # Health indicators configuration
+  health:
+    circuitbreakers:
+      enabled: true
+    db:
+      enabled: true
+    diskspace:
+      enabled: true
+      path: ${java.io.tmpdir}
+      threshold: ${HEALTH_DISKSPACE_THRESHOLD:10MB}
+    kafka:
+      enabled: true
+    redis:
+      enabled: false  # Enable if Redis is used
+  # JMX endpoint configuration
+  jmx:
+    exposure:
+      include: '*'
+    enabled: ${MANAGEMENT_JMX_ENABLED:true}
+  # Metrics configuration
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      instance: ${HOSTNAME:localhost}
+      environment: ${SPRING_PROFILES_ACTIVE:development}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        spring.kafka.consumer: true
+      percentiles:
+        http.server.requests: 0.5,0.95,0.99
+        spring.kafka.consumer: 0.5,0.95,0.99
+      sla:
+        http.server.requests: 100ms,500ms,1s,2s,5s
+    export:
+      simple:
+        enabled: false
+    web:
+      server:
+        auto-time-requests: true
+    enable:
+      jvm: true
+      process: true
+      system: true
+      tomcat: true
+      spring.kafka.consumer: true
+      hikaricp: true
 
-# Configure server port
+# Production-ready server configuration
 server:
-  port: 8083
+  port: ${SERVER_PORT:8083}
+  # Enhanced HTTP/2 and compression support
+  http2:
+    enabled: ${SERVER_HTTP2_ENABLED:true}
+  compression:
+    enabled: ${SERVER_COMPRESSION_ENABLED:true}
+    mime-types: application/json,application/xml,text/html,text/xml,text/plain,application/javascript,text/css
+    min-response-size: ${SERVER_COMPRESSION_MIN_SIZE:2048}
+  # Connection and timeout configuration
+  tomcat:
+    # Thread pool configuration for high concurrency
+    threads:
+      max: ${SERVER_TOMCAT_MAX_THREADS:200}
+      min-spare: ${SERVER_TOMCAT_MIN_SPARE:10}
+    # Connection pool configuration
+    max-connections: ${SERVER_TOMCAT_MAX_CONNECTIONS:8192}
+    accept-count: ${SERVER_TOMCAT_ACCEPT_COUNT:100}
+    connection-timeout: ${SERVER_TOMCAT_CONNECTION_TIMEOUT:20000}
+    keep-alive-timeout: ${SERVER_TOMCAT_KEEP_ALIVE_TIMEOUT:20000}
+    max-keep-alive-requests: ${SERVER_TOMCAT_MAX_KEEP_ALIVE:100}
+    # Resource configuration
+    max-http-form-post-size: ${SERVER_TOMCAT_MAX_HTTP_POST_SIZE:2MB}
+    max-swallow-size: ${SERVER_TOMCAT_MAX_SWALLOW_SIZE:2MB}
+    # Security configuration
+    remoteip:
+      remote-ip-header: x-forwarded-for
+      protocol-header: x-forwarded-proto
+      protocol-header-https-value: https
+  # Error handling configuration
+  error:
+    include-message: ${SERVER_ERROR_INCLUDE_MESSAGE:on_param}
+    include-binding-errors: ${SERVER_ERROR_INCLUDE_BINDING:on_param}
+    include-stacktrace: ${SERVER_ERROR_INCLUDE_STACKTRACE:on_param}
+    include-exception: false
+  # Forward headers strategy for load balancers
+  forward-headers-strategy: ${SERVER_FORWARD_HEADERS_STRATEGY:framework}
+  # Shutdown configuration
+  shutdown: ${SERVER_SHUTDOWN:graceful}
+  servlet:
+    # Context path and session configuration
+    context-path: ${SERVER_CONTEXT_PATH:}
+    session:
+      timeout: ${SERVER_SESSION_TIMEOUT:30m}
+      cookie:
+        max-age: ${SERVER_SESSION_COOKIE_MAX_AGE:30m}
+        secure: ${SERVER_SESSION_COOKIE_SECURE:false}
+        http-only: ${SERVER_SESSION_COOKIE_HTTP_ONLY:true}
+        same-site: ${SERVER_SESSION_COOKIE_SAME_SITE:lax}
 
-# Logging configuration
+# Production-grade logging configuration with structured logging
 logging:
   level:
-    root: INFO
-    com.tabularasa.bi: INFO
-    org.apache.spark: WARN
-    org.spark_project: WARN
-    org.apache.hadoop: WARN
-    org.apache.kafka: WARN
-    org.hibernate: WARN 
+    root: ${LOG_LEVEL_ROOT:INFO}
+    # Application logging levels
+    com.tabularasa.bi: ${LOG_LEVEL_APP:INFO}
+    # Third-party library logging levels
+    org.apache.spark: ${LOG_LEVEL_SPARK:WARN}
+    org.spark_project: ${LOG_LEVEL_SPARK_PROJECT:WARN}
+    org.apache.hadoop: ${LOG_LEVEL_HADOOP:WARN}
+    org.apache.kafka: ${LOG_LEVEL_KAFKA:WARN}
+    org.apache.kafka.clients: ${LOG_LEVEL_KAFKA_CLIENTS:WARN}
+    org.hibernate: ${LOG_LEVEL_HIBERNATE:WARN}
+    org.hibernate.SQL: ${LOG_LEVEL_HIBERNATE_SQL:WARN}
+    org.springframework: ${LOG_LEVEL_SPRING:WARN}
+    org.springframework.kafka: ${LOG_LEVEL_SPRING_KAFKA:INFO}
+    org.springframework.jdbc: ${LOG_LEVEL_SPRING_JDBC:WARN}
+    # Connection pool logging
+    com.zaxxer.hikari: ${LOG_LEVEL_HIKARI:WARN}
+    # Security logging
+    org.springframework.security: ${LOG_LEVEL_SECURITY:WARN}
+  # Pattern configuration for structured logging
+  pattern:
+    console: "${CONSOLE_LOG_PATTERN:%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(${LOG_LEVEL_PATTERN:-%5p}) %clr(${PID:- }){magenta} %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n${LOG_EXCEPTION_CONVERSION_WORD:-%wEx}}"
+    file: "${FILE_LOG_PATTERN:%d{yyyy-MM-dd HH:mm:ss.SSS} ${LOG_LEVEL_PATTERN:-%5p} ${PID:- } --- [%t] %-40.40logger{39} : %m%n${LOG_EXCEPTION_CONVERSION_WORD:-%wEx}}"
+  # File logging configuration
+  file:
+    name: ${LOG_FILE_NAME:logs/tabularasa-bi-processor.log}
+    max-size: ${LOG_FILE_MAX_SIZE:100MB}
+    max-history: ${LOG_FILE_MAX_HISTORY:30}
+    total-size-cap: ${LOG_FILE_TOTAL_SIZE_CAP:1GB}
+  # Logback configuration
+  logback:
+    rollingpolicy:
+      clean-history-on-start: ${LOG_CLEAN_HISTORY_ON_START:false}
+      max-file-size: ${LOG_MAX_FILE_SIZE:100MB}
+      max-history: ${LOG_MAX_HISTORY:30}
+      total-size-cap: ${LOG_TOTAL_SIZE_CAP:1GB}
+  # Charset configuration
+  charset:
+    console: ${LOG_CHARSET_CONSOLE:UTF-8}
+    file: ${LOG_CHARSET_FILE:UTF-8}
+
+# Custom application logging configuration
+tabularasa:
+  logging:
+    # Enable structured JSON logging for production
+    json-enabled: ${STRUCTURED_LOGGING_ENABLED:false}
+    # Enable correlation ID tracking
+    correlation-id-enabled: ${CORRELATION_ID_ENABLED:true}
+    # Enable performance logging
+    performance-logging-enabled: ${PERFORMANCE_LOGGING_ENABLED:true}
+    # Sensitive data masking
+    mask-sensitive-data: ${MASK_SENSITIVE_DATA:true} 
