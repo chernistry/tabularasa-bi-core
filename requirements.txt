@@ -1,64 +1,78 @@
 # Production-ready Python dependencies with pinned versions (2025 standards)
 
-# Web Framework - FastAPI with production features
-fastapi==0.104.1                    # High-performance async web framework
-uvicorn[standard]==0.24.0           # ASGI server with performance optimizations
-gunicorn==21.2.0                    # Production WSGI server for scaling
+# Dashboard and Web Framework
+Flask==3.1.0                        # Production web framework for dashboards
+flask-cors==5.0.0                   # CORS support for API endpoints
+flask-limiter==3.9.0                # Rate limiting for API protection
+flask-caching==2.3.0                # Response caching for performance
+gunicorn==23.0.0                    # Production WSGI server
 
-# Database ORM and Drivers - Latest stable versions
-sqlalchemy==2.0.23                 # Modern SQLAlchemy with async support
-asyncpg==0.29.0                     # High-performance async PostgreSQL driver
-psycopg2-binary==2.9.9              # Synchronous PostgreSQL adapter
-alembic==1.12.1                     # Database migration tool
+# Database Drivers and Connection Pooling
+psycopg2-binary==2.9.9              # PostgreSQL adapter with binary package
+SQLAlchemy==2.0.36                  # ORM with connection pooling support
+alembic==1.15.0                     # Database migration tool
 
 # Data Processing and Analytics
-pandas==2.1.4                       # Data manipulation and analysis
-numpy==1.26.2                       # Numerical computing foundation
-pyarrow==14.0.1                     # Columnar data format for performance
+pandas==2.2.3                       # Data manipulation and analysis
+numpy==2.1.3                        # Numerical computing foundation
+pyarrow==18.1.0                     # Columnar data format for performance
+plotly==5.25.0                      # Interactive visualization library
 
-# HTTP Client and Networking
-httpx==0.25.2                       # Modern async HTTP client
-aiohttp==3.9.1                      # Async HTTP client/server framework
-requests==2.31.0                    # Synchronous HTTP library (fallback)
+# Apache Spark Dependencies
+pyspark==3.5.1                      # PySpark for distributed processing
+py4j==0.10.9.7                      # Python-Java bridge for Spark
 
-# Security and Authentication
-cryptography==41.0.8                # Cryptographic recipes and primitives
-pyjwt[crypto]==2.8.0                # JSON Web Token implementation
-passlib[bcrypt]==1.7.4              # Password hashing library
+# Kafka and Streaming
+kafka-python==2.0.2                 # Kafka client library
+confluent-kafka==2.5.3              # Alternative high-performance Kafka client
 
 # Monitoring and Observability
-prometheus-client==0.19.0           # Prometheus metrics client
-opentelemetry-api==1.21.0          # OpenTelemetry tracing API
-opentelemetry-sdk==1.21.0          # OpenTelemetry SDK
-opentelemetry-instrumentation-fastapi==0.42b0  # FastAPI auto-instrumentation
+prometheus-client==0.21.0           # Prometheus metrics client
+opentelemetry-api==1.29.0           # OpenTelemetry tracing API
+opentelemetry-sdk==1.29.0           # OpenTelemetry SDK
+opentelemetry-instrumentation==0.50b0  # Auto-instrumentation
 
-# Configuration and Environment Management
-pydantic==2.5.0                     # Data validation using Python type hints
-pydantic-settings==2.1.0            # Settings management with Pydantic
-python-multipart==0.0.6             # Form parsing support
-python-jose[cryptography]==3.3.0    # JOSE implementation for JWT
+# Security and Authentication
+cryptography==42.0.8                # Cryptographic recipes and primitives
+pyjwt[crypto]==2.9.0                # JSON Web Token implementation
+python-jose[cryptography]==3.3.0    # JOSE implementation
 
 # Logging and Structured Logging
-structlog==23.2.0                   # Structured logging
+structlog==24.4.0                   # Structured logging
 python-json-logger==2.0.7           # JSON formatter for Python logging
 
-# Task Queue and Background Processing
-celery==5.3.4                       # Distributed task queue
-redis==5.0.1                        # Redis client for Celery broker
+# Configuration Management
+python-dotenv==1.0.1                # Load environment variables from .env file
+pyyaml==6.0.2                       # YAML parser and emitter
+pydantic==2.10.3                    # Data validation using Python type hints
+pydantic-settings==2.6.1            # Settings management
 
-# Testing and Development Tools (optional for production)
-pytest==7.4.3                       # Testing framework
-pytest-asyncio==0.21.1              # Async testing support
-pytest-cov==4.1.0                   # Coverage reporting
-black==23.11.0                      # Code formatter
-isort==5.12.0                       # Import sorter
-flake8==6.1.0                       # Linting tool
-mypy==1.7.1                         # Static type checker
+# HTTP Clients
+httpx==0.28.1                       # Modern async HTTP client
+requests==2.32.3                    # Synchronous HTTP library
+
+# Testing and Development Tools
+pytest==8.3.4                       # Testing framework
+pytest-asyncio==0.24.0              # Async testing support
+pytest-cov==6.0.0                   # Coverage reporting
+pytest-flask==1.3.0                 # Flask testing utilities
+black==24.10.0                      # Code formatter
+ruff==0.8.4                         # Fast Python linter
+mypy==1.13.0                        # Static type checker
+isort==5.13.2                       # Import sorter
 
 # Production Deployment
-docker==6.1.3                       # Docker SDK for Python
-kubernetes==28.1.0                  # Kubernetes client library
+docker==7.1.0                       # Docker SDK for Python
+kubernetes==31.0.0                  # Kubernetes client library
 
-# Environment and Configuration
-python-dotenv==1.0.0                # Load environment variables from .env file
-pyyaml==6.0.1                       # YAML parser and emitter 
+# Utilities
+click==8.1.7                        # Command line interface creation
+rich==13.9.4                        # Rich text formatting in terminal
+tenacity==9.0.0                     # Retry library for resilience
+
+# Workflow Orchestration with Prefect
+prefect==3.1.4                      # Modern workflow orchestration
+prefect-docker==0.6.2               # Docker infrastructure support
+prefect-kubernetes==0.5.0           # Kubernetes infrastructure support
+prefect-sqlalchemy==0.5.1           # SQLAlchemy integration
+prefect-dask==0.3.2                 # Dask distributed computing support

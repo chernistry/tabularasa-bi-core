@@ -26,10 +26,30 @@ spring:
       register-mbeans: true
       auto-commit: false
   
+  # Flyway database migration configuration
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    locations: classpath:db/migration
+    schemas: public
+    table: flyway_schema_history
+    validate-on-migrate: true
+    out-of-order: false
+    clean-disabled: true  # Never allow clean in production
+    mixed: false  # Don't allow mixing transactional and non-transactional migrations
+    group: true  # Group all pending migrations together in a single transaction
+    sql-migration-prefix: V
+    sql-migration-separator: __
+    sql-migration-suffixes: .sql
+    placeholder-replacement: true
+    placeholders:
+      schema: public
+      
   # Production-optimized JPA configuration
   jpa:
     hibernate:
-      ddl-auto: validate # Prevents automatic schema updates in production
+      ddl-auto: validate # Flyway handles all schema changes
       naming:
         physical-strategy: org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy
     properties:
@@ -48,6 +68,9 @@ spring:
           use_second_level_cache: true
           use_query_cache: true
           region.factory_class: org.hibernate.cache.jcache.JCacheRegionFactory
+        # Flyway integration
+        hbm2ddl:
+          import_files_sql_extractor: org.hibernate.tool.schema.internal.script.MultiLineSqlScriptExtractor
         # Connection handling
         connection:
           provider_disables_autocommit: true
@@ -399,8 +422,17 @@ logging:
     console: ${LOG_CHARSET_CONSOLE:UTF-8}
     file: ${LOG_CHARSET_FILE:UTF-8}
 
-# Custom application logging configuration
+# Custom application configuration
 tabularasa:
+  # Database configuration
+  database:
+    # Connection pool monitoring
+    monitor-connections: true
+    # Slow query threshold in milliseconds
+    slow-query-threshold: ${DB_SLOW_QUERY_THRESHOLD:1000}
+    # Enable query statistics
+    enable-statistics: ${DB_ENABLE_STATISTICS:true}
+    
   logging:
     # Enable structured JSON logging for production
     json-enabled: ${STRUCTURED_LOGGING_ENABLED:false}
@@ -409,4 +441,13 @@ tabularasa:
     # Enable performance logging
     performance-logging-enabled: ${PERFORMANCE_LOGGING_ENABLED:true}
     # Sensitive data masking
-    mask-sensitive-data: ${MASK_SENSITIVE_DATA:true} 
+    mask-sensitive-data: ${MASK_SENSITIVE_DATA:true}
+    
+  # Feature flags
+  features:
+    # Enable circuit breaker for database operations
+    circuit-breaker-enabled: ${FEATURE_CIRCUIT_BREAKER:true}
+    # Enable distributed tracing
+    tracing-enabled: ${FEATURE_TRACING:true}
+    # Enable metrics collection
+    metrics-enabled: ${FEATURE_METRICS:true} 

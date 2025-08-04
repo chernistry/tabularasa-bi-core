@@ -14,14 +14,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.orm.jpa.HibernatePropertiesCustomizer;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
-import org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration;
-import org.springframework.boot.autoconfigure.transaction.jta.JtaAutoConfiguration;
-import org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration;
 
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -78,65 +71,16 @@ public class Q1RealtimeStreamProcessingApplication {
     }
     
     /**
-     * Отключение проверки схемы для профиля spark, чтобы избежать конфликтов
-     * между JPA и Spark при работе с базой данных.
+     * Disable Hibernate schema validation for Spark profile to avoid conflicts
+     * between JPA and Spark when working with the database.
      */
     @Bean
     @Profile("spark")
     public HibernatePropertiesCustomizer hibernatePropertiesCustomizer() {
-        return hibernateProperties -> 
+        return hibernateProperties -> {
+            // Disable schema validation in Spark mode as Flyway handles migrations
             hibernateProperties.put("hibernate.hbm2ddl.auto", "none");
-    }
-    
-    /**
-     * Initialize database schema before application starts
-     */
-    @Bean
-    public ApplicationRunner databaseInitializer(JdbcTemplate jdbcTemplate) {
-        return args -> {
-            log.info("Checking database schema...");
-            
-            // TODO: Use a proper database migration tool like Flyway or Liquibase
-            // to manage schema changes versionally and avoid manual DDL in code.
-            // Dropping views like this is a temporary workaround.
-            boolean viewExists = jdbcTemplate.queryForObject(
-                "SELECT EXISTS (SELECT 1 FROM pg_views WHERE viewname = 'v_aggregated_campaign_stats')", 
-                Boolean.class);
-                
-            if (viewExists) {
-                log.info("Found view v_aggregated_campaign_stats that depends on our table. Dropping it to prevent schema conflicts.");
-                jdbcTemplate.execute("DROP VIEW IF EXISTS v_aggregated_campaign_stats");
-                log.info("View dropped successfully");
-            }
-            
-            // TODO: DDL should be externalized into SQL migration scripts.
-            boolean tableExists = jdbcTemplate.queryForObject(
-                "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'aggregated_campaign_stats')", 
-                Boolean.class);
-                
-            if (!tableExists) {
-                log.info("Creating aggregated_campaign_stats table");
-                jdbcTemplate.execute(
-                    "CREATE TABLE IF NOT EXISTS aggregated_campaign_stats (" +
-                    "id SERIAL PRIMARY KEY, " +
-                    "campaign_id VARCHAR(255) NOT NULL, " +
-                    "event_type VARCHAR(50) NOT NULL, " +
-                    "window_start_time TIMESTAMP NOT NULL, " +
-                    "window_end_time TIMESTAMP NOT NULL, " +
-                    "event_count BIGINT NOT NULL, " +
-                    "total_bid_amount DECIMAL(18, 6) NOT NULL, " +
-                    "updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
-                    "CONSTRAINT aggregated_campaign_stats_unique UNIQUE (campaign_id, event_type, window_start_time)" +
-                    ")"
-                );
-                
-                // Create indexes for better performance
-                jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_aggregated_campaign_stats_campaign_id ON aggregated_campaign_stats (campaign_id)");
-                jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_aggregated_campaign_stats_event_type ON aggregated_campaign_stats (event_type)");
-                jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_aggregated_campaign_stats_window ON aggregated_campaign_stats (window_start_time, window_end_time)");
-                
-                log.info("Table and indexes created successfully");
-            }
+            hibernateProperties.put("hibernate.temp.use_jdbc_metadata_defaults", "false");
         };
     }
 

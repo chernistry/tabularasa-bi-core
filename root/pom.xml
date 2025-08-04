@@ -25,7 +25,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         
-        <!-- Dependency versions -->
+        <!-- Dependency versions - 2025 latest stable -->
         <spring-boot.version>3.4.7</spring-boot.version>
         <spring-kafka.version>3.3.7</spring-kafka.version>
         <spark.version>3.5.1</spark.version>
@@ -33,17 +33,24 @@
         <postgresql.version>42.7.7</postgresql.version>
         <hsqldb.version>2.7.4</hsqldb.version>
         <lombok.version>1.18.38</lombok.version>
-        <jackson.version>2.16.1</jackson.version>
-        <opentelemetry.version>1.38.0</opentelemetry.version>
-        <micrometer-tracing.version>1.1.6</micrometer-tracing.version>
+        <jackson.version>2.18.2</jackson.version>
+        <opentelemetry.version>1.45.0</opentelemetry.version>
+        <micrometer-tracing.version>1.4.2</micrometer-tracing.version>
         <quicktheories.version>0.26</quicktheories.version>
+        <flyway.version>11.1.0</flyway.version>
+        <hikaricp.version>6.2.1</hikaricp.version>
+        <resilience4j.version>2.2.0</resilience4j.version>
+        <testcontainers.version>1.20.4</testcontainers.version>
         
-        <!-- Plugin versions -->
+        <!-- Plugin versions - 2025 latest stable -->
         <maven-compiler-plugin.version>3.14.0</maven-compiler-plugin.version>
-        <maven-surefire-plugin.version>3.2.5</maven-surefire-plugin.version>
-        <maven-failsafe-plugin.version>3.2.5</maven-failsafe-plugin.version>
+        <maven-surefire-plugin.version>3.5.2</maven-surefire-plugin.version>
+        <maven-failsafe-plugin.version>3.5.2</maven-failsafe-plugin.version>
         <maven-shade-plugin.version>3.6.0</maven-shade-plugin.version>
-        <maven-enforcer-plugin.version>3.4.1</maven-enforcer-plugin.version>
+        <maven-enforcer-plugin.version>3.5.0</maven-enforcer-plugin.version>
+        <jacoco-maven-plugin.version>0.8.13</jacoco-maven-plugin.version>
+        <spotbugs-maven-plugin.version>4.9.0.0</spotbugs-maven-plugin.version>
+        <checkstyle-maven-plugin.version>3.6.0</checkstyle-maven-plugin.version>
     </properties>
 
     <modules>

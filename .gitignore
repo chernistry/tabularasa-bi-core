@@ -83,3 +83,4 @@ dashboards/.DS_Store
 .dockerignore
 **/docker-compose.local.yml
 **/docker/.env
+CLAUDE.md

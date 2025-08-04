@@ -17,66 +17,135 @@ services:
       - docker_bi_network
 
   # ================== DATABASE SERVICES ==================
-  # --► PostgreSQL for Airflow metadata and app data
+  # --► PostgreSQL for application data with production optimizations
   tabularasa_postgres_db:
-    image: postgres:14.11-alpine
+    image: postgres:16.6-alpine  # Latest stable PostgreSQL
     container_name: tabularasa_postgres_db
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     env_file: .env
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-tabulauser}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-tabulapass}
       - POSTGRES_DB=${POSTGRES_DB:-tabularasadb}
-      # Security best practices
-      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
+      # Security and performance optimizations
+      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 --data-checksums
+      - POSTGRES_HOST_AUTH_METHOD=scram-sha-256
+      # Performance tuning for production workloads
+      - POSTGRES_SHARED_PRELOAD_LIBRARIES=pg_stat_statements
+      - POSTGRES_MAX_CONNECTIONS=${DB_MAX_CONNECTIONS:-200}
+      - POSTGRES_SHARED_BUFFERS=${DB_SHARED_BUFFERS:-256MB}
+      - POSTGRES_EFFECTIVE_CACHE_SIZE=${DB_EFFECTIVE_CACHE_SIZE:-1GB}
+      - POSTGRES_WORK_MEM=${DB_WORK_MEM:-4MB}
+      - POSTGRES_MAINTENANCE_WORK_MEM=${DB_MAINTENANCE_WORK_MEM:-64MB}
+      - POSTGRES_WAL_BUFFERS=${DB_WAL_BUFFERS:-16MB}
+      - POSTGRES_CHECKPOINT_COMPLETION_TARGET=${DB_CHECKPOINT_COMPLETION_TARGET:-0.7}
+      - POSTGRES_DEFAULT_STATISTICS_TARGET=${DB_DEFAULT_STATISTICS_TARGET:-100}
     volumes:
       - tabularasa_pg_data:/var/lib/postgresql/data
+      - ./postgresql/init:/docker-entrypoint-initdb.d:ro
+      - ./postgresql/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command: [
+      "postgres",
+      "-c", "config_file=/etc/postgresql/postgresql.conf",
+      "-c", "logging_collector=on",
+      "-c", "log_directory=/var/log/postgresql",
+      "-c", "log_filename=postgresql-%Y-%m-%d_%H%M%S.log",
+      "-c", "log_rotation_age=1d",
+      "-c", "log_rotation_size=100MB",
+      "-c", "log_min_duration_statement=1000",
+      "-c", "log_line_prefix=%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h ",
+      "-c", "log_statement=ddl"
+    ]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tabulauser} -d ${POSTGRES_DB:-tabularasadb}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tabulauser} -d ${POSTGRES_DB:-tabularasadb} -h localhost"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
     restart: unless-stopped
     networks:
       - docker_bi_network
+    deploy:
+      resources:
+        limits:
+          memory: ${DB_MEMORY_LIMIT:-2G}
+          cpus: '${DB_CPU_LIMIT:-2.0}'
+        reservations:
+          memory: ${DB_MEMORY_RESERVATION:-1G}
+          cpus: '${DB_CPU_RESERVATION:-1.0}'
+    labels:
+      - "com.tabularasa.service=database"
+      - "com.tabularasa.environment=${ENVIRONMENT:-development}"
 
-  # Kafka configured for development mode
+  # Kafka configured for production-grade streaming
   kafka:
-    image: bitnami/kafka:3.7
+    image: bitnami/kafka:3.8.1  # Latest stable Kafka
     container_name: kafka
     ports:
-      - "9092:9092" # PLAINTEXT port
+      - "${KAFKA_PORT:-9092}:9092"
+      - "${KAFKA_JMX_PORT:-9999}:9999"  # JMX for monitoring
     environment:
-      # Enable plaintext listener for development
-      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9094
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092
-      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      # Production listener configuration
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9094,JMX://:9999
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://${KAFKA_ADVERTISED_HOST:-localhost}:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,JMX:PLAINTEXT
       - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
-      # KRaft settings
+      # KRaft mode configuration (no Zookeeper)
       - KAFKA_CFG_NODE_ID=1
       - KAFKA_CFG_PROCESS_ROLES=broker,controller
       - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9094
       - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
       - KAFKA_KRAFT_CLUSTER_ID=tabulaRasaBiKafkaCluster123
-      # Other settings
+      # Production settings
       - ALLOW_PLAINTEXT_LISTENER=yes
-      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
-      - KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=1
-      - KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
-      - KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR=1
-      - KAFKA_CFG_ENABLE_IDEMPOTENCE=true
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=${KAFKA_AUTO_CREATE_TOPICS:-false}
+      - KAFKA_CFG_NUM_PARTITIONS=${KAFKA_DEFAULT_PARTITIONS:-3}
+      - KAFKA_CFG_DEFAULT_REPLICATION_FACTOR=${KAFKA_REPLICATION_FACTOR:-1}
+      - KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=${KAFKA_REPLICATION_FACTOR:-1}
+      - KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=${KAFKA_REPLICATION_FACTOR:-1}
+      - KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR=${KAFKA_MIN_ISR:-1}
+      - KAFKA_CFG_MIN_INSYNC_REPLICAS=${KAFKA_MIN_ISR:-1}
+      # Performance and reliability settings
+      - KAFKA_CFG_LOG_RETENTION_HOURS=${KAFKA_LOG_RETENTION_HOURS:-168}  # 7 days
+      - KAFKA_CFG_LOG_RETENTION_BYTES=${KAFKA_LOG_RETENTION_BYTES:-1073741824}  # 1GB
+      - KAFKA_CFG_LOG_SEGMENT_BYTES=${KAFKA_LOG_SEGMENT_BYTES:-134217728}  # 128MB
+      - KAFKA_CFG_LOG_CLEANUP_POLICY=${KAFKA_LOG_CLEANUP_POLICY:-delete}
+      - KAFKA_CFG_COMPRESSION_TYPE=${KAFKA_COMPRESSION_TYPE:-snappy}
+      - KAFKA_CFG_MESSAGE_MAX_BYTES=${KAFKA_MESSAGE_MAX_BYTES:-1048576}  # 1MB
+      - KAFKA_CFG_REPLICA_FETCH_MAX_BYTES=${KAFKA_REPLICA_FETCH_MAX_BYTES:-1048576}
+      - KAFKA_CFG_SOCKET_SEND_BUFFER_BYTES=${KAFKA_SOCKET_SEND_BUFFER:-102400}
+      - KAFKA_CFG_SOCKET_RECEIVE_BUFFER_BYTES=${KAFKA_SOCKET_RECEIVE_BUFFER:-102400}
+      - KAFKA_CFG_SOCKET_REQUEST_MAX_BYTES=${KAFKA_SOCKET_REQUEST_MAX_BYTES:-104857600}
+      # JVM settings for production
+      - KAFKA_HEAP_OPTS=${KAFKA_HEAP_OPTS:--Xmx1G -Xms1G}
+      - KAFKA_JVM_PERFORMANCE_OPTS=${KAFKA_JVM_PERFORMANCE_OPTS:--server -XX:+UseG1GC -XX:MaxGCPauseMillis=20 -XX:InitiatingHeapOccupancyPercent=35}
+      # Monitoring and metrics
+      - KAFKA_CFG_JMX_HOSTNAME_VERIFICATION=false
+      - KAFKA_CFG_JMX_OPTS=-Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false -Djava.rmi.server.hostname=kafka
     volumes:
       - kafka_data:/bitnami/kafka
+      - ./kafka/server.properties:/opt/bitnami/kafka/config/server.properties:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
-      interval: 10s
-      timeout: 5s
+      interval: 15s
+      timeout: 10s
       retries: 5
-      start_period: 15s
+      start_period: 30s
     networks:
       - docker_bi_network
+    deploy:
+      resources:
+        limits:
+          memory: ${KAFKA_MEMORY_LIMIT:-2G}
+          cpus: '${KAFKA_CPU_LIMIT:-2.0}'
+        reservations:
+          memory: ${KAFKA_MEMORY_RESERVATION:-1G}
+          cpus: '${KAFKA_CPU_RESERVATION:-1.0}'
+    labels:
+      - "com.tabularasa.service=kafka"
+      - "com.tabularasa.environment=${ENVIRONMENT:-development}"
 
   kafka-ui:
     image: provectuslabs/kafka-ui:v0.7.2

@@ -29,7 +29,7 @@ class DataProcessorTest {
         assertEquals(1, duplicates.size(), "Should identify one duplicate key.");
         assertEquals("101:A", duplicates.get(0), "Duplicate key should be '101:A'.");
 
-        Map<String, Integer> counts = processor.getAllRecordCounts();
+        Map<String, Long> counts = processor.getAllRecordCounts();
         assertEquals(2, counts.get("101:A"), "Count for '101:A' should be 2.");
         assertEquals(1, counts.get("102:B"), "Count for '102:B' should be 1.");
         assertEquals(2, processor.getUniqueRecordCount(), "Unique record count should be 2.");
@@ -69,7 +69,7 @@ class DataProcessorTest {
         assertEquals("S01:X", duplicatesBatch2.get(0));
 
         assertEquals(3, processor.getUniqueRecordCount(), "Unique record count should be 3 after two batches.");
-        Map<String, Integer> counts = processor.getAllRecordCounts();
+        Map<String, Long> counts = processor.getAllRecordCounts();
         assertEquals(2, counts.get("S01:X"), "Count for S01:X should be 2.");
         assertEquals(1, counts.get("S02:Y"), "Count for S02:Y should be 1.");
         assertEquals(1, counts.get("S03:Z"), "Count for S03:Z should be 1.");

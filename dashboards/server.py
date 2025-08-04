@@ -1,48 +1,181 @@
-from flask import Flask, jsonify, send_from_directory
 import os
-import random
+import logging
+import time
+from contextlib import contextmanager
+from typing import Optional, Dict, List, Any, Union
 from datetime import datetime, timedelta
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from psycopg2.pool import ThreadedConnectionPool
+from flask import Flask, jsonify, send_from_directory, Response, request
+from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from flask_caching import Cache
+from werkzeug.exceptions import HTTPException
+import prometheus_client
+from prometheus_client import Counter, Histogram, Gauge
 
+# Configure structured logging
+logging.basicConfig(
+    level=os.getenv('LOG_LEVEL', 'INFO'),
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('dashboards.log')
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Initialize Flask app with production configuration
 app = Flask(__name__)
+app.config.update(
+    SECRET_KEY=os.getenv('SECRET_KEY', 'dev-key-change-in-production'),
+    MAX_CONTENT_LENGTH=16 * 1024 * 1024,  # 16MB max request size
+    JSON_SORT_KEYS=False,
+    JSONIFY_PRETTYPRINT_REGULAR=False,
+)
 
-# PostgreSQL connection configuration
+# Configure CORS for production
+CORS(app, resources={
+    r"/api/*": {
+        "origins": os.getenv('ALLOWED_ORIGINS', '*').split(','),
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"]
+    }
+})
+
+# Configure rate limiting
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["1000 per hour", "100 per minute"]
+)
+
+# Configure caching
+cache = Cache(app, config={
+    'CACHE_TYPE': 'simple',
+    'CACHE_DEFAULT_TIMEOUT': int(os.getenv('CACHE_TIMEOUT', '300'))
+})
+
+# Prometheus metrics
+request_count = Counter('dashboard_requests_total', 'Total requests', ['method', 'endpoint', 'status'])
+request_duration = Histogram('dashboard_request_duration_seconds', 'Request duration', ['method', 'endpoint'])
+db_connection_errors = Counter('dashboard_db_errors_total', 'Database connection errors')
+active_connections = Gauge('dashboard_db_active_connections', 'Active database connections')
+
+# PostgreSQL connection configuration with environment variables
 DB_CONFIG = {
-    'dbname': 'tabularasadb',
-    'user': 'tabulauser',
-    'password': 'tabulapass',
-    'host': 'localhost',
-    'port': '5432'
+    'dbname': os.getenv('DB_NAME', 'tabularasadb'),
+    'user': os.getenv('DB_USER', 'tabulauser'),
+    'password': os.getenv('DB_PASSWORD', 'tabulapass'),
+    'host': os.getenv('DB_HOST', 'localhost'),
+    'port': os.getenv('DB_PORT', '5432'),
+    'connect_timeout': int(os.getenv('DB_CONNECT_TIMEOUT', '10')),
+    'options': '-c statement_timeout=30000'  # 30 second statement timeout
 }
 
-# Helper to obtain a database connection
-def get_db_connection():
-    try:
-        conn = psycopg2.connect(**DB_CONFIG)
-        return conn
-    except Exception as e:
-        print(f"PostgreSQL connection error: {e}")
-        return None
+# Thread-safe connection pool
+connection_pool: Optional[ThreadedConnectionPool] = None
 
-# Execute SQL query with optional empty fallback
-def execute_query(query, fallback_func=None):
-    conn = get_db_connection()
-    if conn:
-        try:
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-            cursor.execute(query)
-            result = cursor.fetchall()
-            cursor.close()
-            conn.close()
-            return result
-        except Exception as e:
-            print(f"Database query error: {e}")
+def init_connection_pool(minconn: int = 1, maxconn: int = 10):
+    """Initialize the database connection pool."""
+    global connection_pool
+    try:
+        connection_pool = ThreadedConnectionPool(
+            minconn=minconn,
+            maxconn=maxconn,
+            **DB_CONFIG
+        )
+        logger.info(f"Database connection pool initialized with {minconn}-{maxconn} connections")
+    except Exception as e:
+        logger.error(f"Failed to initialize connection pool: {e}")
+        db_connection_errors.inc()
+        raise
+
+@contextmanager
+def get_db_connection():
+    """Get a database connection from the pool with proper cleanup."""
+    conn = None
+    start_time = time.time()
+    try:
+        if not connection_pool:
+            init_connection_pool()
+        
+        conn = connection_pool.getconn()
+        active_connections.inc()
+        yield conn
+        conn.commit()
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logger.error(f"Database error: {e}")
+        db_connection_errors.inc()
+        raise
+    finally:
+        if conn and connection_pool:
+            connection_pool.putconn(conn)
+            active_connections.dec()
+        duration = time.time() - start_time
+        logger.debug(f"Database operation completed in {duration:.3f}s")
+
+def execute_query(query: str, params: Optional[tuple] = None, fallback_func: Optional[callable] = None) -> Union[List[Dict], Dict]:
+    """Execute SQL query with proper error handling and connection management."""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(query, params)
+                result = cursor.fetchall()
+                logger.debug(f"Query returned {len(result)} rows")
+                return result
+    except Exception as e:
+        logger.error(f"Database query error: {e}")
+        if fallback_func:
+            logger.warning("Using fallback data due to database error")
+            return fallback_func()
+        raise
+
+@app.errorhandler(Exception)
+def handle_exception(e: Exception) -> tuple:
+    """Global error handler for all exceptions."""
+    if isinstance(e, HTTPException):
+        response = e.get_response()
+        response.data = jsonify({
+            'error': e.name,
+            'message': e.description,
+            'status_code': e.code
+        }).data
+        response.content_type = "application/json"
+        return response, e.code
     
-    # WARNING: Database unavailable. Returning empty results instead of real metrics.
-    if fallback_func:
-        return fallback_func()
-    return []
+    logger.exception("Unhandled exception occurred")
+    return jsonify({
+        'error': 'Internal Server Error',
+        'message': 'An unexpected error occurred',
+        'status_code': 500
+    }), 500
+
+@app.before_request
+def before_request():
+    """Log and track incoming requests."""
+    logger.debug(f"Incoming request: {request.method} {request.path}")
+
+@app.after_request
+def after_request(response: Response) -> Response:
+    """Track request metrics and add security headers."""
+    request_count.labels(
+        method=request.method,
+        endpoint=request.endpoint or 'unknown',
+        status=response.status_code
+    ).inc()
+    
+    # Add security headers
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    
+    return response
 
 # Static file handler
 @app.route('/', defaults={'path': 'index.html'})
@@ -68,8 +201,28 @@ def serve_static(path):
     
     return "File not found", 404
 
+@app.route('/health')
+def health_check():
+    """Health check endpoint for monitoring."""
+    try:
+        # Test database connectivity
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute('SELECT 1')
+        return jsonify({'status': 'healthy', 'database': 'connected'}), 200
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({'status': 'unhealthy', 'database': 'disconnected', 'error': str(e)}), 503
+
+@app.route('/metrics')
+def metrics():
+    """Expose Prometheus metrics."""
+    return Response(prometheus_client.generate_latest(), mimetype='text/plain')
+
 # API endpoints backed by PostgreSQL metrics
 @app.route('/api/campaign_performance')
+@limiter.limit("100 per minute")
+@cache.cached(timeout=60)
 def campaign_performance():
     query = """
     SELECT
@@ -88,12 +241,14 @@ def campaign_performance():
     """
     
     def empty_campaigns():
-        print("WARNING: Returning empty campaign data.")
+        logger.warning("Returning empty campaign data due to database unavailability")
         return []
     
     return jsonify(execute_query(query, empty_campaigns))
 
 @app.route('/api/performance/by_device')
+@limiter.limit("100 per minute")
+@cache.cached(timeout=60)
 def performance_by_device():
     query = """
     SELECT
@@ -108,12 +263,14 @@ def performance_by_device():
     """
     
     def empty_device_data():
-        print("WARNING: Returning empty device breakdown.")
+        logger.warning("Returning empty device breakdown due to database unavailability")
         return []
     
     return jsonify(execute_query(query, empty_device_data))
 
 @app.route('/api/performance/by_category')
+@limiter.limit("100 per minute")
+@cache.cached(timeout=60)
 def performance_by_category():
     query = """
     SELECT
@@ -127,12 +284,14 @@ def performance_by_category():
     """
     
     def empty_categories():
-        print("WARNING: Returning empty category breakdown.")
+        logger.warning("Returning empty category breakdown due to database unavailability")
         return []
     
     return jsonify(execute_query(query, empty_categories))
 
 @app.route('/api/kpis')
+@limiter.limit("100 per minute")
+@cache.cached(timeout=30)
 def kpis():
     query = """
     SELECT
@@ -147,7 +306,7 @@ def kpis():
     """
     
     def empty_kpis():
-        print("WARNING: Returning empty KPI set.")
+        logger.warning("Returning empty KPI set due to database unavailability")
         return {
             'impressions': 0,
             'clicks': 0,
@@ -163,6 +322,8 @@ def kpis():
     return jsonify(result)
 
 @app.route('/api/roi_trend')
+@limiter.limit("100 per minute")
+@cache.cached(timeout=120)
 def roi_trend():
     query = """
     WITH daily_metrics AS (
@@ -185,13 +346,13 @@ def roi_trend():
     """
     
     def empty_roi_trend():
-        print("WARNING: Returning empty ROI trend.")
+        logger.warning("Returning empty ROI trend due to database unavailability")
         return []
     
     result = execute_query(query, empty_roi_trend)
-    print(f"DEBUG ROI trend: Retrieved {len(result)} data points")
+    logger.debug(f"ROI trend: Retrieved {len(result)} data points")
     if len(result) == 0:
-        print("DEBUG ROI trend: No data found, checking for any data without date filter")
+        logger.debug("ROI trend: No data found, checking for any data without date filter")
         # Try without date filter if no data found
         alt_query = """
         WITH daily_metrics AS (
@@ -212,11 +373,13 @@ def roi_trend():
         ORDER BY day;
         """
         result = execute_query(alt_query, empty_roi_trend)
-        print(f"DEBUG ROI trend: Retrieved {len(result)} data points with alternative query")
+        logger.debug(f"ROI trend: Retrieved {len(result)} data points with alternative query")
     
     return jsonify(result)
 
 @app.route('/api/pipeline_health')
+@limiter.limit("100 per minute")
+@cache.cached(timeout=60)
 def pipeline_health():
     query = """
     SELECT 
@@ -233,12 +396,14 @@ def pipeline_health():
     """
     
     def empty_pipeline_health():
-        print("WARNING: Returning empty pipeline health data.")
+        logger.warning("Returning empty pipeline health data due to database unavailability")
         return []
     
     return jsonify(execute_query(query, empty_pipeline_health))
 
 @app.route('/api/performance/by_brand')
+@limiter.limit("100 per minute")
+@cache.cached(timeout=60)
 def performance_by_brand():
     query = """
     SELECT
@@ -251,12 +416,14 @@ def performance_by_brand():
     """
     
     def empty_brand_data():
-        print("WARNING: Returning empty brand breakdown.")
+        logger.warning("Returning empty brand breakdown due to database unavailability")
         return []
     
     return jsonify(execute_query(query, empty_brand_data))
 
 @app.route('/api/performance/by_age_group')
+@limiter.limit("100 per minute")
+@cache.cached(timeout=60)
 def performance_by_age_group():
     query = """
     SELECT
@@ -271,12 +438,14 @@ def performance_by_age_group():
     """
 
     def empty_age_group_data():
-        print("WARNING: Returning empty age-group breakdown.")
+        logger.warning("Returning empty age-group breakdown due to database unavailability")
         return []
 
     return jsonify(execute_query(query, empty_age_group_data))
 
 @app.route('/api/advertiser_metrics')
+@limiter.limit("100 per minute")
+@cache.cached(timeout=60)
 def advertiser_metrics():
     query = """
     SELECT
@@ -305,7 +474,7 @@ def advertiser_metrics():
     """
     
     def empty_metrics():
-        print("WARNING: Returning empty advertiser metrics.")
+        logger.warning("Returning empty advertiser metrics due to database unavailability")
         return {
             'cpa': 0,
             'roas': 0,
@@ -319,6 +488,8 @@ def advertiser_metrics():
     return jsonify(result)
 
 @app.route('/api/campaign_efficiency')
+@limiter.limit("100 per minute")
+@cache.cached(timeout=60)
 def campaign_efficiency():
     query = """
     WITH campaign_metrics AS (
@@ -355,18 +526,41 @@ def campaign_efficiency():
     """
     
     def empty_efficiency():
-        print("WARNING: Returning empty campaign efficiency data.")
+        logger.warning("Returning empty campaign efficiency data due to database unavailability")
         return []
     
     return jsonify(execute_query(query, empty_efficiency))
 
+def init_app():
+    """Initialize application resources."""
+    try:
+        # Initialize connection pool
+        init_connection_pool(
+            minconn=int(os.getenv('DB_POOL_MIN', '2')),
+            maxconn=int(os.getenv('DB_POOL_MAX', '10'))
+        )
+        
+        # Test database connectivity
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute('SELECT 1')
+        
+        logger.info("Application initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize application: {e}")
+        raise
+
 if __name__ == '__main__':
-    # Validate database connectivity on server start-up
-    conn = get_db_connection()
-    if conn:
-        print("Successfully connected to PostgreSQL.")
-        conn.close()
-    else:
-        print("WARNING: Unable to connect to PostgreSQL. Empty data will be served.")
+    init_app()
     
-    app.run(debug=True, port=8080) 
+    # Production server configuration
+    port = int(os.getenv('PORT', '8080'))
+    debug = os.getenv('FLASK_ENV') == 'development'
+    
+    if debug:
+        logger.warning("Running in development mode")
+        app.run(debug=True, port=port)
+    else:
+        # For production, use a proper WSGI server like gunicorn
+        logger.info(f"Starting production server on port {port}")
+        app.run(host='0.0.0.0', port=port, debug=False) 
